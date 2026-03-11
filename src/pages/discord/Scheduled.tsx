@@ -52,8 +52,8 @@ export default function DiscordScheduled() {
       {schedulerStatus && (
         <div className="card" style={{ marginBottom: 20 }}>
           <p style={{ margin: 0, color: '#888' }}>
-            Scheduler: <strong style={{ color: schedulerStatus.running ? '#4caf50' : '#f44336' }}>
-              {schedulerStatus.running ? 'Running' : 'Stopped'}
+            Scheduler: <strong style={{ color: ( schedulerStatus.concurrency > 0 || schedulerStatus.runningIds !== undefined) ? '#4caf50' : '#f44336' }}>
+              {( schedulerStatus.concurrency > 0 || schedulerStatus.runningIds !== undefined) ? 'Running' : 'Stopped'}
             </strong>
           </p>
         </div>

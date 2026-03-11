@@ -84,8 +84,8 @@ export default function DiscordDashboard() {
         <div className="card" style={{ marginBottom: 20 }}>
           <h3 style={{ margin: '0 0 8px' }}>Scheduler</h3>
           <p style={{ margin: 0, color: '#888' }}>
-            Status: <strong style={{ color: schedulerStatus.running ? '#4caf50' : '#f44336' }}>
-              {schedulerStatus.running ? 'Running' : 'Stopped'}
+            Status: <strong style={{ color: ( schedulerStatus.concurrency > 0 || schedulerStatus.runningIds !== undefined) ? '#4caf50' : '#f44336' }}>
+              {( schedulerStatus.concurrency > 0 || schedulerStatus.runningIds !== undefined) ? 'Running' : 'Stopped'}
             </strong>
             {schedulerStatus.nextRun && <> · Next: {new Date(schedulerStatus.nextRun).toLocaleString()}</>}
           </p>
