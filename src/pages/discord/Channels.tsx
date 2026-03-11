@@ -411,7 +411,7 @@ export default function DiscordChannels() {
                   onMouseOver={e => { if (!backfillRunning[ch.id] && !backfillQueued[ch.id]) e.currentTarget.style.background = '#3d4046'; }}
                   onMouseOut={e => (e.currentTarget.style.background = 'none')}
                 >
-                  {backfillRunning[ch.id] ? '⟳ Running…' : backfillQueued[ch.id] ? `⏳ Queued (#${backfillQueued[ch.id].position})` : '⬇ Download all'}
+                  {backfillRunning[ch.id] ? '⟳ Running…' : backfillQueued[ch.id] ? `⏳ Queued (#${backfillQueued[ch.id].position})` : '⬇ Download Missing'}
                 </button>
                 {(backfillRunning[ch.id] || backfillQueued[ch.id]) && (
                   <button
