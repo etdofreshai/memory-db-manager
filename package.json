@@ -1,5 +1,5 @@
 {
-  "name": "openclaw-memory-db-manager",
+  "name": "memory-db-manager",
   "private": true,
   "type": "module",
   "scripts": {

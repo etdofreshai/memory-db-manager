@@ -1,4 +1,4 @@
-# OpenClaw Memory DB Manager
+# Memory DB Manager
 
 A standalone admin UI for browsing and managing the Memory Database. Talks to [memory-database-api](https://github.com/etdofreshai/memory-database-api) via its REST API.
 
