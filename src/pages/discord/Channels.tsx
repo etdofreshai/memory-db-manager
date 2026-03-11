@@ -72,6 +72,8 @@ export default function DiscordChannels() {
   const setFilter = (v: string) => setFilters({ filter: v });
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(getCollapseState);
   const [actionLoading, setActionLoading] = useState<Record<string, string>>({}); // channelId -> action key
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMsg, setRefreshMsg] = useState('');
 
   const fetchAll = useCallback(() => {
     Promise.all([
@@ -89,6 +91,21 @@ export default function DiscordChannels() {
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const handleRefreshChannels = async () => {
+    setRefreshing(true);
+    setRefreshMsg('');
+    try {
+      const res = await discordApi<{ ok: boolean; count: number }>('/api/channels/refresh', { method: 'POST' });
+      setRefreshMsg(`✓ Refreshed ${res.count} channels`);
+      fetchAll();
+    } catch (e: any) {
+      setRefreshMsg(`Error: ${e.message}`);
+    } finally {
+      setRefreshing(false);
+      setTimeout(() => setRefreshMsg(''), 5000);
+    }
+  };
 
   const jobsByChannel = useMemo(() => {
     const m: Record<string, Job> = {};
@@ -286,6 +303,14 @@ export default function DiscordChannels() {
         />
         <span style={{ color: '#888', fontSize: 13 }}>{filtered.length} channels</span>
         <ResetFiltersButton onReset={resetFilters} visible={isDirty} />
+        <button
+          onClick={handleRefreshChannels}
+          disabled={refreshing}
+          style={{ marginLeft: 'auto', padding: '5px 12px', background: '#1a2a3a', border: '1px solid #4a9eff', borderRadius: 6, color: '#4a9eff', cursor: refreshing ? 'wait' : 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+        >
+          {refreshing ? '⟳ Refreshing…' : '⟳ Refresh Names'}
+        </button>
+        {refreshMsg && <span style={{ fontSize: 12, color: refreshMsg.startsWith('✓') ? '#4ade80' : '#f44336' }}>{refreshMsg}</span>}
       </div>
       {loading ? <p>Loading...</p> : (
         <>
