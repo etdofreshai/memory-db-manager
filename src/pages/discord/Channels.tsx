@@ -353,6 +353,14 @@ export default function DiscordChannels() {
           {refreshing ? '⟳ Refreshing…' : '⟳ Refresh Names'}
         </button>
         {refreshMsg && <span style={{ fontSize: 12, color: refreshMsg.startsWith('✓') ? '#4ade80' : '#f44336' }}>{refreshMsg}</span>}
+        <button
+          onClick={() => { const s: Record<string,boolean> = {}; ['Direct Messages', ...serverGroups.map(g => g.name)].forEach(n => s[n] = false); setCollapseState(s); setCollapsed(s); }}
+          style={{ padding: '5px 10px', background: 'none', border: '1px solid #555', borderRadius: 6, color: '#aaa', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+        >⊞ Expand All</button>
+        <button
+          onClick={() => { const s: Record<string,boolean> = {}; ['Direct Messages', ...serverGroups.map(g => g.name)].forEach(n => s[n] = true); setCollapseState(s); setCollapsed(s); }}
+          style={{ padding: '5px 10px', background: 'none', border: '1px solid #555', borderRadius: 6, color: '#aaa', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+        >⊟ Collapse All</button>
       </div>
       {loading ? <p>Loading...</p> : (
         <>
