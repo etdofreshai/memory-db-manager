@@ -253,7 +253,7 @@ export default function DiscordJobs() {
   const handleCancel = async (job: UnifiedJob) => {
     try {
       if (job.type === 'Backfill') {
-        await discordApi(`/api/backfill/runs/${job.id}/cancel`, { method: 'POST' });
+        await discordApi(`/api/backfill/pause`, { method: 'POST', body: JSON.stringify({ runId: job.id }) });
       } else if (job.type === 'Queued') {
         await discordApi(`/api/backfill/queue/${job.id}`, { method: 'DELETE' });
       }
@@ -265,7 +265,7 @@ export default function DiscordJobs() {
 
   const handlePause = async (job: UnifiedJob) => {
     try {
-      await discordApi(`/api/backfill/runs/${job.id}/pause`, { method: 'POST' });
+      await discordApi(`/api/backfill/pause`, { method: 'POST', body: JSON.stringify({ runId: job.id }) });
       await fetchData();
     } catch (e: any) {
       setError(`Pause failed: ${e.message}`);
