@@ -72,6 +72,7 @@ export default function DiscordChannels() {
   const setFilter = (v: string) => setFilters({ filter: v });
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(getCollapseState);
   const [actionLoading, setActionLoading] = useState<Record<string, string>>({}); // channelId -> action key
+  const [backfillRunning, setBackfillRunning] = useState<Record<string, string>>({}); // channelId -> runId
   const [togglingEnabled, setTogglingEnabled] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState('');
@@ -206,14 +207,41 @@ export default function DiscordChannels() {
     }
   };
 
+  const pollBackfillStatus = async (channelId: string, runId: string) => {
+    const poll = async () => {
+      try {
+        const status = await discordApi<any>(`/api/backfill/status/${runId}`);
+        if (status?.status === 'running' || status?.status === 'paused') {
+          setTimeout(poll, 5000); // check again in 5s
+        } else {
+          setBackfillRunning(p => { const n = { ...p }; delete n[channelId]; return n; });
+        }
+      } catch {
+        setBackfillRunning(p => { const n = { ...p }; delete n[channelId]; return n; });
+      }
+    };
+    setTimeout(poll, 3000);
+  };
+
   const handleBackfill = async (ch: MergedChannel) => {
+    if (backfillRunning[ch.id]) return; // already running
     const key = `${ch.id}-backfill`;
     setActionLoading(p => ({ ...p, [ch.id]: key }));
     try {
-      await discordApi('/api/backfill/start', {
+      const raw = await fetch(`/proxy/discord-ingestor/api/backfill/start`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ channelId: ch.id, attachmentMode: 'missing' }),
       });
+      const body = await raw.json().catch(() => ({}));
+      if (raw.ok && body?.runId) {
+        setBackfillRunning(p => ({ ...p, [ch.id]: body.runId }));
+        pollBackfillStatus(ch.id, body.runId);
+      } else if (raw.status === 409 && body?.runId) {
+        // Already running — show persistent indicator
+        setBackfillRunning(p => ({ ...p, [ch.id]: body.runId }));
+        pollBackfillStatus(ch.id, body.runId);
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -296,8 +324,13 @@ export default function DiscordChannels() {
           )}
           <button style={btnStyle(!!active1d)} disabled={isLoading} onClick={() => handleSchedule(ch, '1d')}>Every day</button>
           <button style={btnStyle(!!active4h)} disabled={isLoading} onClick={() => handleSchedule(ch, '4h')}>Every 4h</button>
-          <button style={{ ...btnStyle(false), borderColor: '#666' }} disabled={isLoading} onClick={() => handleBackfill(ch)}>
-            {actionLoading[ch.id]?.endsWith('backfill') ? '⏳' : 'Download all'}
+          <button
+            style={{ ...btnStyle(false), borderColor: backfillRunning[ch.id] ? '#f59e0b' : '#666', color: backfillRunning[ch.id] ? '#f59e0b' : '#999' }}
+            disabled={isLoading || !!backfillRunning[ch.id]}
+            onClick={() => handleBackfill(ch)}
+            title={backfillRunning[ch.id] ? 'Backfill in progress — check back later' : 'Download all messages (skip existing)'}
+          >
+            {backfillRunning[ch.id] ? '⟳ Running…' : actionLoading[ch.id]?.endsWith('backfill') ? '⏳' : 'Download all'}
           </button>
         </td>
       </tr>
