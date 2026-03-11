@@ -292,6 +292,26 @@ export default function DiscordChannels() {
     }
   };
 
+  const handleCancelBackfill = async (ch: MergedChannel) => {
+    const runId = backfillRunning[ch.id] || backfillQueued[ch.id]?.runId;
+    if (!runId) return;
+    try {
+      if (backfillRunning[ch.id]) {
+        await fetch('/proxy/discord-ingestor/api/backfill/pause', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runId }),
+        });
+      } else {
+        await fetch(`/proxy/discord-ingestor/api/backfill/queue/${runId}`, { method: 'DELETE' });
+      }
+      setBackfillRunning(p => { const n = { ...p }; delete n[ch.id]; return n; });
+      setBackfillQueued(p => { const n = { ...p }; delete n[ch.id]; return n; });
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
   const handleToggleEnabled = async (ch: MergedChannel) => {
     const job = jobsByChannel[ch.id];
     if (!job) return;
@@ -393,6 +413,16 @@ export default function DiscordChannels() {
                 >
                   {backfillRunning[ch.id] ? '⟳ Running…' : backfillQueued[ch.id] ? `⏳ Queued (#${backfillQueued[ch.id].position})` : '⬇ Download all'}
                 </button>
+                {(backfillRunning[ch.id] || backfillQueued[ch.id]) && (
+                  <button
+                    onClick={() => { setMenuOpen(null); handleCancelBackfill(ch); }}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 13 }}
+                    onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                    onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    ✕ Cancel download
+                  </button>
+                )}
                 <button
                   onClick={() => { setMenuOpen(null); setDeleteInput(''); setDeleteConfirm(ch); }}
                   style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 13 }}
