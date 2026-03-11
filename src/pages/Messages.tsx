@@ -8,10 +8,23 @@ import ResetFiltersButton from '../components/ResetFiltersButton';
 
 const PAGE_SIZE = 50;
 
-const FILTER_DEFAULTS = { q: '', searchInput: '', source: '', sender: '', dateFrom: '', dateTo: '' };
+const FILTER_DEFAULTS = { q: '', searchInput: '', source: '', sender: '', recipient: '', dateFrom: '', dateTo: '' };
 
 export default function Messages() {
   const [filters, setFilters, resetFilters, isDirty] = usePersistedFilters('filters:messages', FILTER_DEFAULTS);
+
+  // On mount: if URL has query params, override filters (allows "View all" from channel page)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlSource = params.get('source');
+    const urlRecipient = params.get('recipient');
+    if (urlSource || urlRecipient) {
+      setFilters({ ...FILTER_DEFAULTS, source: urlSource || '', recipient: urlRecipient || '' });
+      // Clean URL without reloading
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [messages, setMessages] = useState<any[]>([]);
   const [sources, setSources] = useState<any[]>([]);
   const [page, setPage] = useState(1);
@@ -32,6 +45,7 @@ export default function Messages() {
     if (filters.q) params.set('q', filters.q);
     if (filters.source) params.set('source', filters.source);
     if (filters.sender) params.set('sender', filters.sender);
+    if (filters.recipient) params.set('recipient', filters.recipient);
     if (filters.dateFrom) params.set('after', filters.dateFrom);
     if (filters.dateTo) params.set('before', filters.dateTo);
 
@@ -39,7 +53,7 @@ export default function Messages() {
       .then(d => { setMessages(d.messages || []); setTotal(d.total || 0); setTotalPages(d.totalPages || 1); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [page, filters.q, filters.source, filters.sender, filters.dateFrom, filters.dateTo]);
+  }, [page, filters.q, filters.source, filters.sender, filters.recipient, filters.dateFrom, filters.dateTo]);
 
   function openDetail(m: any) {
     setSelected(m);
@@ -67,6 +81,8 @@ export default function Messages() {
         </select>
         <input placeholder="Sender" value={filters.sender} onChange={e => setFilters({ sender: e.target.value })}
           onKeyDown={e => { if (e.key === 'Enter') setPage(1); }} style={{ width: 120 }} />
+        <input placeholder="Recipient" value={filters.recipient} onChange={e => { setFilters({ recipient: e.target.value }); setPage(1); }}
+          style={{ width: 160 }} />
         <input type="date" value={filters.dateFrom} onChange={e => { setFilters({ dateFrom: e.target.value }); setPage(1); }} title="From" />
         <input type="date" value={filters.dateTo} onChange={e => { setFilters({ dateTo: e.target.value }); setPage(1); }} title="To" />
         <ResetFiltersButton onReset={() => { resetFilters(); setPage(1); }} visible={isDirty} />
