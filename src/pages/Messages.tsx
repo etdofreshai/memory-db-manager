@@ -3,10 +3,15 @@ import { apiFetch } from '../api';
 import Pager from '../components/Pager';
 import DetailModal from '../components/DetailModal';
 import { AttachmentLink } from '../components/AttachmentPreview';
+import { usePersistedFilters } from '../hooks/usePersistedFilters';
+import ResetFiltersButton from '../components/ResetFiltersButton';
 
 const PAGE_SIZE = 50;
 
+const FILTER_DEFAULTS = { q: '', searchInput: '', source: '', sender: '', dateFrom: '', dateTo: '' };
+
 export default function Messages() {
+  const [filters, setFilters, resetFilters, isDirty] = usePersistedFilters('filters:messages', FILTER_DEFAULTS);
   const [messages, setMessages] = useState<any[]>([]);
   const [sources, setSources] = useState<any[]>([]);
   const [page, setPage] = useState(1);
@@ -14,12 +19,6 @@ export default function Messages() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [q, setQ] = useState('');
-  const [source, setSource] = useState('');
-  const [sender, setSender] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
   const [selected, setSelected] = useState<any>(null);
   const [linkedAtts, setLinkedAtts] = useState<any[]>([]);
 
@@ -30,17 +29,17 @@ export default function Messages() {
   useEffect(() => {
     setLoading(true); setError('');
     const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE), sort: 'timestamp', order: 'desc' });
-    if (q) params.set('q', q);
-    if (source) params.set('source', source);
-    if (sender) params.set('sender', sender);
-    if (dateFrom) params.set('after', dateFrom);
-    if (dateTo) params.set('before', dateTo);
+    if (filters.q) params.set('q', filters.q);
+    if (filters.source) params.set('source', filters.source);
+    if (filters.sender) params.set('sender', filters.sender);
+    if (filters.dateFrom) params.set('after', filters.dateFrom);
+    if (filters.dateTo) params.set('before', filters.dateTo);
 
     apiFetch(`/api/messages?${params}`)
       .then(d => { setMessages(d.messages || []); setTotal(d.total || 0); setTotalPages(d.totalPages || 1); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [page, q, source, sender, dateFrom, dateTo]);
+  }, [page, filters.q, filters.source, filters.sender, filters.dateFrom, filters.dateTo]);
 
   function openDetail(m: any) {
     setSelected(m);
@@ -51,23 +50,26 @@ export default function Messages() {
     }
   }
 
+  const doSearch = () => { setFilters({ q: filters.searchInput.trim() }); setPage(1); };
+
   return (
     <div>
       <h1 className="page-title">✉️ Messages</h1>
 
       <div className="filters-bar">
-        <input placeholder="Search content/sender/recipient" value={searchInput} onChange={e => setSearchInput(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') { setQ(searchInput.trim()); setPage(1); } }} style={{ minWidth: 260 }} />
-        <button onClick={() => { setQ(searchInput.trim()); setPage(1); }}>Search</button>
-        {q && <button onClick={() => { setSearchInput(''); setQ(''); setPage(1); }}>Clear</button>}
-        <select value={source} onChange={e => { setSource(e.target.value); setPage(1); }}>
+        <input placeholder="Search content/sender/recipient" value={filters.searchInput} onChange={e => setFilters({ searchInput: e.target.value })}
+          onKeyDown={e => { if (e.key === 'Enter') doSearch(); }} style={{ minWidth: 260 }} />
+        <button onClick={doSearch}>Search</button>
+        {filters.q && <button onClick={() => { setFilters({ searchInput: '', q: '' }); setPage(1); }}>Clear</button>}
+        <select value={filters.source} onChange={e => { setFilters({ source: e.target.value }); setPage(1); }}>
           <option value="">All sources</option>
           {sources.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
         </select>
-        <input placeholder="Sender" value={sender} onChange={e => setSender(e.target.value)}
+        <input placeholder="Sender" value={filters.sender} onChange={e => setFilters({ sender: e.target.value })}
           onKeyDown={e => { if (e.key === 'Enter') setPage(1); }} style={{ width: 120 }} />
-        <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1); }} title="From" />
-        <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }} title="To" />
+        <input type="date" value={filters.dateFrom} onChange={e => { setFilters({ dateFrom: e.target.value }); setPage(1); }} title="From" />
+        <input type="date" value={filters.dateTo} onChange={e => { setFilters({ dateTo: e.target.value }); setPage(1); }} title="To" />
+        <ResetFiltersButton onReset={() => { resetFilters(); setPage(1); }} visible={isDirty} />
       </div>
 
       {error && <div className="error-box">{error}</div>}

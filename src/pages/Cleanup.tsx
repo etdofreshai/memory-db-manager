@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
+import { usePersistedFilters } from '../hooks/usePersistedFilters';
+import ResetFiltersButton from '../components/ResetFiltersButton';
 
 interface Stats {
   total_messages: number;
@@ -55,11 +57,14 @@ export default function Cleanup() {
   const [confirmText, setConfirmText] = useState('');
 
   const [channelMap, setChannelMap] = useState<Record<string, any>>({});
-  const [sourceId, setSourceId] = useState('');
-  const [channel, setChannel] = useState('');
-  const [sender, setSender] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const CLEANUP_DEFAULTS = { sourceId: '', channel: '', sender: '', dateFrom: '', dateTo: '' };
+  const [filters, setFilters, resetPersistedFilters, isDirtyFilters] = usePersistedFilters('filters:cleanup', CLEANUP_DEFAULTS);
+  const { sourceId, channel, sender, dateFrom, dateTo } = filters;
+  const setSourceId = (v: string) => setFilters({ sourceId: v });
+  const setChannel = (v: string) => setFilters({ channel: v });
+  const setSender = (v: string) => setFilters({ sender: v });
+  const setDateFrom = (v: string) => setFilters({ dateFrom: v });
+  const setDateTo = (v: string) => setFilters({ dateTo: v });
 
   const buildParams = useCallback(() => {
     const p = new URLSearchParams();
