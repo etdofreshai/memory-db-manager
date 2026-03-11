@@ -15,6 +15,13 @@ interface Preview {
   links: number;
   orphaned_attachments: number;
   total_linked_attachments: number;
+  breakdown: {
+    sources: { name: string; count: number }[];
+    channels: { channel: string; count: number }[];
+    senders: { sender: string; count: number }[];
+    dateRange: { earliest: string | null; latest: string | null };
+  };
+  sampleMessages: { id: string; sender: string; content: string; timestamp: string; source: string }[];
 }
 
 function StatCard({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -26,6 +33,15 @@ function StatCard({ label, value, color }: { label: string; value: string; color
   );
 }
 
+function formatDate(d: string | null) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function truncate(s: string, len: number) {
+  return s && s.length > len ? s.slice(0, len) + '…' : (s || '');
+}
+
 export default function Cleanup() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -34,6 +50,7 @@ export default function Cleanup() {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [confirmText, setConfirmText] = useState('');
 
@@ -81,9 +98,18 @@ export default function Cleanup() {
 
   const loadPreview = async () => {
     setPreviewLoading(true); setError('');
-    try { setPreview(await apiFetch(`/api/cleanup/preview?${buildParams()}`)); }
-    catch (e: any) { setError(e.message); }
+    try {
+      const data = await apiFetch(`/api/cleanup/preview?${buildParams()}`);
+      setPreview(data);
+      setShowPreviewModal(true);
+    } catch (e: any) { setError(e.message); }
     finally { setPreviewLoading(false); }
+  };
+
+  const closePreviewModal = () => {
+    setShowPreviewModal(false);
+    setShowConfirm(false);
+    setConfirmText('');
   };
 
   const doDelete = async () => {
@@ -98,7 +124,8 @@ export default function Cleanup() {
         }),
       });
       setToast(`✅ Deleted: ${data.deleted.messages} messages, ${data.deleted.links} links, ${data.deleted.attachments} attachments`);
-      setShowConfirm(false); setConfirmText(''); setPreview(null);
+      closePreviewModal();
+      setPreview(null);
       loadStats();
     } catch (e: any) { setError(e.message); }
     finally { setDeleting(false); }
@@ -106,6 +133,11 @@ export default function Cleanup() {
 
   const hasFilters = !!(sourceId || channel || sender || dateFrom || dateTo);
   const resetFilters = () => { setSourceId(''); setChannel(''); setSender(''); setDateFrom(''); setDateTo(''); };
+
+  const resolvePreviewChannel = (ch: string): string => {
+    if (ch?.startsWith('discord-channel:')) return resolveDisplayName(ch);
+    return ch || '—';
+  };
 
   return (
     <div>
@@ -193,49 +225,122 @@ export default function Cleanup() {
         </div>
       </div>
 
-      {/* Action bar */}
+      {/* Action bar — only Preview button, no Delete here */}
       <div style={{ position: 'sticky', bottom: 0, background: '#0f1117', borderTop: '1px solid #1e2230', padding: '12px 0', display: 'flex', gap: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-        {!hasFilters && <span style={{ color: '#888', fontSize: 13, alignSelf: 'center', flex: 1 }}>Apply filters before previewing/deleting</span>}
+        {!hasFilters && <span style={{ color: '#888', fontSize: 13, alignSelf: 'center', flex: 1 }}>Apply filters before previewing</span>}
         <button onClick={loadPreview} disabled={!hasFilters || previewLoading} style={{ background: '#1b3a2a', borderColor: '#2e7d32' }}>
           {previewLoading ? '⏳...' : '👁 Preview Delete'}
         </button>
-        <button onClick={() => { if (preview && preview.messages > 0) setShowConfirm(true); }}
-          disabled={!preview || preview.messages === 0} style={{ background: '#3a1b1b', borderColor: '#7d2e2e' }}>
-          🗑 Delete Selected
-        </button>
       </div>
 
-      {preview && (
-        <div className="card" style={{ marginTop: 12 }}>
-          <h3 style={{ marginTop: 0 }}>Delete Preview</h3>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <StatCard label="Messages to delete" value={preview.messages.toLocaleString()} color="#ff6b6b" />
-            <StatCard label="Links to remove" value={preview.links.toLocaleString()} color="#ffa726" />
-            <StatCard label="Orphaned attachments" value={preview.orphaned_attachments.toLocaleString()} color="#ffa726" />
-          </div>
-        </div>
-      )}
+      {/* Preview Modal with full details + delete action */}
+      {showPreviewModal && preview && (
+        <div className="modal-overlay" onClick={closePreviewModal}>
+          <div className="modal-content" style={{ maxWidth: 680, maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0, color: '#ff6b6b' }}>🗑 Delete Preview</h2>
 
-      {showConfirm && preview && (
-        <div className="modal-overlay" onClick={() => { setShowConfirm(false); setConfirmText(''); }}>
-          <div className="modal-content" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
-            <h2 style={{ marginTop: 0, color: '#ff6b6b' }}>⚠️ Confirm Deletion</h2>
-            <p>This will permanently delete:</p>
-            <ul style={{ lineHeight: 1.8 }}>
-              <li><strong>{preview.messages.toLocaleString()}</strong> messages</li>
-              <li><strong>{preview.links.toLocaleString()}</strong> attachment links</li>
-              <li><strong>{preview.orphaned_attachments.toLocaleString()}</strong> orphaned attachments</li>
-            </ul>
-            <p style={{ fontSize: 13, color: '#888' }}>Type <strong>DELETE</strong> to confirm.</p>
-            <input value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder="Type DELETE" autoFocus
-              style={{ width: '100%', marginBottom: 12, fontSize: 16, textAlign: 'center' }} />
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => { setShowConfirm(false); setConfirmText(''); }} style={{ flex: 1 }}>Cancel</button>
-              <button onClick={doDelete} disabled={confirmText !== 'DELETE' || deleting}
-                style={{ flex: 1, background: '#5a1a1a', borderColor: '#ff6b6b', color: confirmText === 'DELETE' ? '#ff6b6b' : '#666' }}>
-                {deleting ? '⏳ Deleting...' : '🗑 Confirm Delete'}
-              </button>
+            {/* Summary stat cards */}
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+              <StatCard label="Messages" value={preview.messages.toLocaleString()} color="#ff6b6b" />
+              <StatCard label="Links" value={preview.links.toLocaleString()} color="#ffa726" />
+              <StatCard label="Orphaned Attachments" value={preview.orphaned_attachments.toLocaleString()} color="#ffa726" />
             </div>
+
+            {/* Date range */}
+            {preview.breakdown?.dateRange && (preview.breakdown.dateRange.earliest || preview.breakdown.dateRange.latest) && (
+              <div style={{ marginBottom: 16, padding: '8px 12px', background: '#1a1d2e', borderRadius: 6, fontSize: 13 }}>
+                <strong>Date Range:</strong> {formatDate(preview.breakdown.dateRange.earliest)} → {formatDate(preview.breakdown.dateRange.latest)}
+              </div>
+            )}
+
+            {/* Breakdown by source */}
+            {preview.breakdown?.sources?.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <h4 style={{ margin: '0 0 6px', color: '#888', fontSize: 13 }}>By Source</h4>
+                <table style={{ width: '100%', fontSize: 13 }}>
+                  <thead><tr><th style={{ textAlign: 'left' }}>Source</th><th style={{ textAlign: 'right' }}>Count</th></tr></thead>
+                  <tbody>
+                    {preview.breakdown.sources.map((s, i) => (
+                      <tr key={i}><td>{s.name}</td><td style={{ textAlign: 'right' }}>{s.count.toLocaleString()}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Breakdown by channel */}
+            {preview.breakdown?.channels?.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <h4 style={{ margin: '0 0 6px', color: '#888', fontSize: 13 }}>By Channel (top 20)</h4>
+                <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                  <table style={{ width: '100%', fontSize: 13 }}>
+                    <thead><tr><th style={{ textAlign: 'left' }}>Channel</th><th style={{ textAlign: 'right' }}>Count</th></tr></thead>
+                    <tbody>
+                      {preview.breakdown.channels.map((c, i) => (
+                        <tr key={i}><td title={c.channel}>{resolvePreviewChannel(c.channel)}</td><td style={{ textAlign: 'right' }}>{c.count.toLocaleString()}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Breakdown by sender */}
+            {preview.breakdown?.senders?.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <h4 style={{ margin: '0 0 6px', color: '#888', fontSize: 13 }}>By Sender (top 10)</h4>
+                <table style={{ width: '100%', fontSize: 13 }}>
+                  <thead><tr><th style={{ textAlign: 'left' }}>Sender</th><th style={{ textAlign: 'right' }}>Count</th></tr></thead>
+                  <tbody>
+                    {preview.breakdown.senders.map((s, i) => (
+                      <tr key={i}><td>{s.sender || '(unknown)'}</td><td style={{ textAlign: 'right' }}>{s.count.toLocaleString()}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Sample messages */}
+            {preview.sampleMessages?.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <h4 style={{ margin: '0 0 6px', color: '#888', fontSize: 13 }}>Sample Messages</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {preview.sampleMessages.map((m, i) => (
+                    <div key={i} style={{ background: '#1a1d2e', borderRadius: 6, padding: '8px 10px', fontSize: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, color: '#888' }}>
+                        <span><strong style={{ color: '#aaa' }}>{m.sender || '?'}</strong> · {m.source}</span>
+                        <span>{new Date(m.timestamp).toLocaleString()}</span>
+                      </div>
+                      <div style={{ color: '#ccc' }}>{truncate(m.content, 100)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Delete / Cancel actions */}
+            {!showConfirm ? (
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button onClick={closePreviewModal} style={{ flex: 0 }}>Cancel</button>
+                <button onClick={() => setShowConfirm(true)} disabled={preview.messages === 0}
+                  style={{ background: '#3a1b1b', borderColor: '#7d2e2e', color: '#ff6b6b' }}>
+                  🗑 Delete Selected
+                </button>
+              </div>
+            ) : (
+              <div style={{ borderTop: '1px solid #2a2d3e', paddingTop: 12 }}>
+                <p style={{ fontSize: 13, color: '#888', margin: '0 0 8px' }}>Type <strong>DELETE</strong> to confirm permanent deletion.</p>
+                <input value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder="Type DELETE" autoFocus
+                  style={{ width: '100%', marginBottom: 12, fontSize: 16, textAlign: 'center' }} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => { setShowConfirm(false); setConfirmText(''); }} style={{ flex: 1 }}>Cancel</button>
+                  <button onClick={doDelete} disabled={confirmText !== 'DELETE' || deleting}
+                    style={{ flex: 1, background: '#5a1a1a', borderColor: '#ff6b6b', color: confirmText === 'DELETE' ? '#ff6b6b' : '#666' }}>
+                    {deleting ? '⏳ Deleting...' : '🗑 Confirm Delete'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
