@@ -290,9 +290,8 @@ export default function DiscordScheduled() {
                       title="Toggle all"
                     />
                   </th>
-                  <th>Name</th>
-                  <th>Schedule</th>
                   <th>Channel</th>
+                  <th>Schedule</th>
                   <th>Last Run</th>
                   <th>Last Message</th>
                   <th>Next Run</th>
@@ -311,9 +310,19 @@ export default function DiscordScheduled() {
                           onChange={(e) => toggleEnabled(job.id, e.target.checked)}
                         />
                       </td>
-                      <td><strong>{job.name || job.id}</strong></td>
-                      <td><code>{formatSchedule(job.intervalMinutes)}</code></td>
-                      <td>{resolveChannelName(channelId)}</td>
+                      <td>
+                        {(() => {
+                          const info = channels[channelId || ''];
+                          return (
+                            <div>
+                              <div style={{ fontWeight: 600 }}>{info?.channelName || channelId || '—'}</div>
+                              {channelId && <div style={{ fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{channelId}</div>}
+                              {info?.guildName && <div style={{ fontSize: 11, color: '#666' }}>{info.guildName}</div>}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td><code>{job.cadencePreset || formatSchedule(job.intervalMinutes)}</code></td>
                       <td title={job.lastRunAt || job.lastRun || ''}>{relativeTime(job.lastRunAt || job.lastRun)}</td>
                       <td title={channelStats[channelId || '']?.lastMessageAt || ''}>{relativeTime(channelStats[channelId || '']?.lastMessageAt)}</td>
                       <td>{computeNextRun(job.lastRunAt || job.lastRun, job.intervalMinutes)}</td>
