@@ -73,6 +73,7 @@ export default function DiscordChannels() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(getCollapseState);
   const [actionLoading, setActionLoading] = useState<Record<string, string>>({}); // channelId -> action key
   const [backfillRunning, setBackfillRunning] = useState<Record<string, string>>({}); // channelId -> runId
+  const [backfillQueued, setBackfillQueued] = useState<Record<string, { runId: string; position: number }>>({}); // channelId -> queued info
   const [togglingEnabled, setTogglingEnabled] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState('');
@@ -93,6 +94,23 @@ export default function DiscordChannels() {
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Restore queue state on page load
+  useEffect(() => {
+    fetch('/proxy/discord-ingestor/api/backfill/queue')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.queue) {
+          for (const item of data.queue) {
+            if (item.channelId) {
+              setBackfillQueued(p => ({ ...p, [item.channelId]: { runId: item.runId, position: item.position } }));
+              pollBackfillStatus(item.channelId, item.runId);
+            }
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleRefreshChannels = async () => {
     setRefreshing(true);
@@ -211,12 +229,20 @@ export default function DiscordChannels() {
     const poll = async () => {
       try {
         const status = await discordApi<any>(`/api/backfill/status/${runId}`);
-        if (status?.status === 'running' || status?.status === 'paused') {
-          setTimeout(poll, 5000); // check again in 5s
+        if (status?.status === 'queued') {
+          setBackfillQueued(p => ({ ...p, [channelId]: { runId, position: status.position } }));
+          setBackfillRunning(p => { const n = { ...p }; delete n[channelId]; return n; });
+          setTimeout(poll, 5000);
+        } else if (status?.status === 'running' || status?.status === 'paused') {
+          setBackfillQueued(p => { const n = { ...p }; delete n[channelId]; return n; });
+          setBackfillRunning(p => ({ ...p, [channelId]: runId }));
+          setTimeout(poll, 5000);
         } else {
+          setBackfillQueued(p => { const n = { ...p }; delete n[channelId]; return n; });
           setBackfillRunning(p => { const n = { ...p }; delete n[channelId]; return n; });
         }
       } catch {
+        setBackfillQueued(p => { const n = { ...p }; delete n[channelId]; return n; });
         setBackfillRunning(p => { const n = { ...p }; delete n[channelId]; return n; });
       }
     };
@@ -224,7 +250,7 @@ export default function DiscordChannels() {
   };
 
   const handleBackfill = async (ch: MergedChannel) => {
-    if (backfillRunning[ch.id]) return; // already running
+    if (backfillRunning[ch.id] || backfillQueued[ch.id]) return; // already running or queued
     const key = `${ch.id}-backfill`;
     setActionLoading(p => ({ ...p, [ch.id]: key }));
     try {
@@ -234,11 +260,11 @@ export default function DiscordChannels() {
         body: JSON.stringify({ channelId: ch.id, attachmentMode: 'missing' }),
       });
       const body = await raw.json().catch(() => ({}));
-      if (raw.ok && body?.runId) {
-        setBackfillRunning(p => ({ ...p, [ch.id]: body.runId }));
+      if (raw.status === 202 && body?.queued) {
+        // Queued
+        setBackfillQueued(p => ({ ...p, [ch.id]: { runId: body.runId, position: body.position } }));
         pollBackfillStatus(ch.id, body.runId);
-      } else if (raw.status === 409 && body?.runId) {
-        // Already running — show persistent indicator
+      } else if (raw.ok && body?.runId) {
         setBackfillRunning(p => ({ ...p, [ch.id]: body.runId }));
         pollBackfillStatus(ch.id, body.runId);
       }
@@ -325,12 +351,16 @@ export default function DiscordChannels() {
           <button style={btnStyle(!!active1d)} disabled={isLoading} onClick={() => handleSchedule(ch, '1d')}>Every day</button>
           <button style={btnStyle(!!active4h)} disabled={isLoading} onClick={() => handleSchedule(ch, '4h')}>Every 4h</button>
           <button
-            style={{ ...btnStyle(false), borderColor: backfillRunning[ch.id] ? '#f59e0b' : '#666', color: backfillRunning[ch.id] ? '#f59e0b' : '#999' }}
-            disabled={isLoading || !!backfillRunning[ch.id]}
+            style={{
+              ...btnStyle(false),
+              borderColor: backfillRunning[ch.id] ? '#f59e0b' : backfillQueued[ch.id] ? '#d97706' : '#666',
+              color: backfillRunning[ch.id] ? '#f59e0b' : backfillQueued[ch.id] ? '#d97706' : '#999',
+            }}
+            disabled={isLoading || !!backfillRunning[ch.id] || !!backfillQueued[ch.id]}
             onClick={() => handleBackfill(ch)}
-            title={backfillRunning[ch.id] ? 'Backfill in progress — check back later' : 'Download all messages (skip existing)'}
+            title={backfillRunning[ch.id] ? 'Backfill in progress' : backfillQueued[ch.id] ? `Queued at position #${backfillQueued[ch.id].position}` : 'Download all messages (skip existing)'}
           >
-            {backfillRunning[ch.id] ? '⟳ Running…' : actionLoading[ch.id]?.endsWith('backfill') ? '⏳' : 'Download all'}
+            {backfillRunning[ch.id] ? '⟳ Running…' : backfillQueued[ch.id] ? `⏳ Queued (#${backfillQueued[ch.id].position})` : actionLoading[ch.id]?.endsWith('backfill') ? '⏳' : 'Download all'}
           </button>
         </td>
       </tr>
