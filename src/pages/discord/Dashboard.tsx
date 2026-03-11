@@ -15,6 +15,7 @@ export default function DiscordDashboard() {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [runs, setRuns] = useState<RunInfo[]>([]);
   const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
+  const [channels, setChannels] = useState<Record<string, { channelName: string; guildName?: string }>>({});
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -25,15 +26,19 @@ export default function DiscordDashboard() {
       if (!cfg) return;
 
       try {
-        const [runsData, schedData] = await Promise.allSettled([
+        const [runsData, schedData, chData] = await Promise.allSettled([
           discordApi<any>('/api/runs?limit=20'),
           discordApi<any>('/api/scheduler/status'),
+          discordApi<any>('/api/channels'),
         ]);
         if (runsData.status === 'fulfilled') {
           setRuns(Array.isArray(runsData.value) ? runsData.value : runsData.value?.runs || []);
         }
         if (schedData.status === 'fulfilled') {
           setSchedulerStatus(schedData.value);
+        }
+        if (chData.status === 'fulfilled' && chData.value) {
+          setChannels(chData.value);
         }
       } catch (e: any) {
         setError(e.message);
@@ -98,6 +103,7 @@ export default function DiscordDashboard() {
           <table>
             <thead>
               <tr>
+                <th>Channel</th>
                 <th>Started</th>
                 <th>Status</th>
                 <th>Messages</th>
@@ -112,6 +118,18 @@ export default function DiscordDashboard() {
                   : null;
                 return (
                   <tr key={run.id}>
+                    <td>
+                      {(() => {
+                        const chId = run.channel;
+                        const info = chId ? channels[chId] : null;
+                        return info ? (
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>{info.channelName}</div>
+                            {info.guildName && <div style={{ fontSize: 11, color: '#666' }}>{info.guildName}</div>}
+                          </div>
+                        ) : <span style={{ color: '#555', fontSize: 12 }}>{chId || '—'}</span>;
+                      })()}
+                    </td>
                     <td>{new Date(run.startedAt).toLocaleString()}</td>
                     <td>
                       <span style={{
