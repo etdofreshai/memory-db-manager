@@ -13,6 +13,7 @@ const app = express();
 app.use('/api', createProxyMiddleware({
   target: MEMORY_API_URL,
   changeOrigin: true,
+  pathRewrite: { '^/api': '/api' },
   on: {
     proxyReq(proxyReq) {
       if (MEMORY_API_TOKEN) {
