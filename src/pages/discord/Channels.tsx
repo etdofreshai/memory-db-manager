@@ -303,7 +303,7 @@ export default function DiscordChannels() {
   };
 
   const renderSection = (title: string, channels: MergedChannel[], count?: number) => {
-    const isCollapsed = collapsed[title];
+    const isCollapsed = collapsed[title] !== false; // default collapsed unless explicitly expanded
     return (
       <div key={title} className="card" style={{ marginBottom: 12 }}>
         <div
