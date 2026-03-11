@@ -51,8 +51,8 @@ export default function DiscordDashboard() {
   );
 
   const lastRun = runs[0];
-  const totalIngested = runs.reduce((sum, r) => sum + (r.messagesIngested || 0), 0);
-  const totalErrors = runs.reduce((sum, r) => sum + (r.errors || 0), 0);
+  const totalIngested = runs.reduce((sum, r) => sum + (r.insertedCount || r.messagesIngested || 0), 0);
+  const totalErrors = runs.reduce((sum, r) => sum + (r.errorCount || r.errors || 0), 0);
 
   return (
     <div>
@@ -107,8 +107,8 @@ export default function DiscordDashboard() {
             </thead>
             <tbody>
               {runs.map(run => {
-                const dur = run.completedAt
-                  ? Math.round((new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)
+                const dur = (run.finishedAt || run.completedAt)
+                  ? Math.round((new Date(run.finishedAt || run.completedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)
                   : null;
                 return (
                   <tr key={run.id}>
@@ -120,8 +120,8 @@ export default function DiscordDashboard() {
                         {run.status}
                       </span>
                     </td>
-                    <td>{run.messagesIngested ?? '—'}</td>
-                    <td>{run.errors ?? '—'}</td>
+                    <td>{run.insertedCount ?? run.messagesIngested ?? '—'}</td>
+                    <td>{run.errorCount ?? run.errors ?? '—'}</td>
                     <td>{dur !== null ? `${dur}s` : '—'}</td>
                   </tr>
                 );
