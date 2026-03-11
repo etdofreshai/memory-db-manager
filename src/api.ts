@@ -48,7 +48,10 @@ export async function checkHealth(service: string): Promise<boolean> {
   const cached = healthCache[service];
   if (cached && Date.now() - cached.ts < 60000) return cached.ok;
   try {
-    const res = await fetch(`/proxy/${service}/api/health`, { signal: AbortSignal.timeout(5000) });
+    // Try /api/health first, fall back to /api/scheduler/status for ingestors that don't have /health
+    let res = await fetch(`/proxy/${service}/api/health`, { signal: AbortSignal.timeout(5000) });
+    if (res.status === 404) res = await fetch(`/proxy/${service}/api/status`, { signal: AbortSignal.timeout(5000) });
+    if (res.status === 404) res = await fetch(`/proxy/${service}/api/scheduler/status`, { signal: AbortSignal.timeout(5000) });
     const ok = res.ok;
     healthCache[service] = { ok, ts: Date.now() };
     return ok;
