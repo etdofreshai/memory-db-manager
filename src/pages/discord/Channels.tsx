@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { apiFetch, discordApi } from '../../api';
+import { useNavigate } from 'react-router-dom';
 import { usePersistedFilters } from '../../hooks/usePersistedFilters';
 import ResetFiltersButton from '../../components/ResetFiltersButton';
 
@@ -77,6 +78,22 @@ export default function DiscordChannels() {
   const [togglingEnabled, setTogglingEnabled] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState('');
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<MergedChannel | null>(null);
+  const [deleteInput, setDeleteInput] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuOpen]);
 
   const fetchAll = useCallback(() => {
     Promise.all([
@@ -350,18 +367,51 @@ export default function DiscordChannels() {
           )}
           <button style={btnStyle(!!active1d)} disabled={isLoading} onClick={() => handleSchedule(ch, '1d')}>Every day</button>
           <button style={btnStyle(!!active4h)} disabled={isLoading} onClick={() => handleSchedule(ch, '4h')}>Every 4h</button>
-          <button
-            style={{
-              ...btnStyle(false),
-              borderColor: backfillRunning[ch.id] ? '#f59e0b' : backfillQueued[ch.id] ? '#d97706' : '#666',
-              color: backfillRunning[ch.id] ? '#f59e0b' : backfillQueued[ch.id] ? '#d97706' : '#999',
-            }}
-            disabled={isLoading || !!backfillRunning[ch.id] || !!backfillQueued[ch.id]}
-            onClick={() => handleBackfill(ch)}
-            title={backfillRunning[ch.id] ? 'Backfill in progress' : backfillQueued[ch.id] ? `Queued at position #${backfillQueued[ch.id].position}` : 'Download all messages (skip existing)'}
-          >
-            {backfillRunning[ch.id] ? '⟳ Running…' : backfillQueued[ch.id] ? `⏳ Queued (#${backfillQueued[ch.id].position})` : actionLoading[ch.id]?.endsWith('backfill') ? '⏳' : 'Download all'}
-          </button>
+          <div style={{ position: 'relative', display: 'inline-block' }} ref={menuOpen === ch.id ? menuRef : undefined}>
+            <button
+              onClick={() => setMenuOpen(menuOpen === ch.id ? null : ch.id)}
+              style={{ fontSize: 14, padding: '3px 8px', cursor: 'pointer', background: 'none', border: '1px solid #555', borderRadius: 4, color: '#ccc', marginLeft: 4 }}
+            >
+              ⋯
+            </button>
+            {menuOpen === ch.id && (
+              <div style={{
+                position: 'absolute', right: 0, top: '100%', marginTop: 4,
+                background: '#2f3136', border: '1px solid #555', borderRadius: 6,
+                zIndex: 50, minWidth: 180, boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+              }}>
+                <button
+                  onClick={() => { setMenuOpen(null); handleBackfill(ch); }}
+                  disabled={!!backfillRunning[ch.id] || !!backfillQueued[ch.id]}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px',
+                    background: 'none', border: 'none', fontSize: 13, cursor: (backfillRunning[ch.id] || backfillQueued[ch.id]) ? 'default' : 'pointer',
+                    color: backfillRunning[ch.id] ? '#888' : backfillQueued[ch.id] ? '#888' : '#e0e0e0',
+                  }}
+                  onMouseOver={e => { if (!backfillRunning[ch.id] && !backfillQueued[ch.id]) e.currentTarget.style.background = '#3d4046'; }}
+                  onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                >
+                  {backfillRunning[ch.id] ? '⟳ Running…' : backfillQueued[ch.id] ? `⏳ Queued (#${backfillQueued[ch.id].position})` : '⬇ Download all'}
+                </button>
+                <button
+                  onClick={() => { setMenuOpen(null); setDeleteInput(''); setDeleteConfirm(ch); }}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 13 }}
+                  onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                  onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                >
+                  🗑 Delete all
+                </button>
+                <button
+                  onClick={() => { setMenuOpen(null); navigate(`/memory/messages?source=discord&recipient=discord-channel:${ch.id}`); }}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#e0e0e0', cursor: 'pointer', fontSize: 13 }}
+                  onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                  onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                >
+                  📨 View all
+                </button>
+              </div>
+            )}
+          </div>
         </td>
       </tr>
     );
@@ -433,6 +483,43 @@ export default function DiscordChannels() {
           {serverGroups.map(g => renderSection(g.name, g.channels))}
           {filtered.length === 0 && <p style={{ color: '#888' }}>No channels match your filter.</p>}
         </>
+      )}
+      {deleteConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setDeleteConfirm(null)}>
+          <div style={{ background: '#2f3136', border: '1px solid #555', borderRadius: 8, padding: 24, minWidth: 340, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>Delete all messages from #{deleteConfirm.name}?</h3>
+            <p style={{ color: '#aaa', fontSize: 13, margin: '0 0 16px' }}>This cannot be undone. Type <strong>DELETE</strong> to confirm.</p>
+            <input
+              value={deleteInput}
+              onChange={e => setDeleteInput(e.target.value)}
+              placeholder="Type DELETE"
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 4, border: '1px solid #555', background: '#1e1e1e', color: '#e0e0e0', fontSize: 14, boxSizing: 'border-box' }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteConfirm(null)} style={{ padding: '6px 16px', background: 'none', border: '1px solid #555', borderRadius: 4, color: '#aaa', cursor: 'pointer' }}>Cancel</button>
+              <button
+                disabled={deleteInput !== 'DELETE' || deleteLoading}
+                onClick={async () => {
+                  setDeleteLoading(true);
+                  try {
+                    await apiFetch('/api/cleanup/delete', { method: 'DELETE', body: JSON.stringify({ recipient: `discord-channel:${deleteConfirm.id}` }) });
+                    setDeleteConfirm(null);
+                    fetchAll();
+                  } catch (e: any) {
+                    setError(e.message);
+                    setDeleteConfirm(null);
+                  } finally {
+                    setDeleteLoading(false);
+                  }
+                }}
+                style={{ padding: '6px 16px', background: deleteInput === 'DELETE' ? '#dc2626' : '#555', border: 'none', borderRadius: 4, color: '#fff', cursor: deleteInput === 'DELETE' && !deleteLoading ? 'pointer' : 'not-allowed', opacity: deleteInput === 'DELETE' ? 1 : 0.5 }}
+              >
+                {deleteLoading ? 'Deleting…' : 'Delete All'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
