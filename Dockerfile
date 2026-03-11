@@ -10,4 +10,5 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/vite.config.ts ./
 CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0"]
