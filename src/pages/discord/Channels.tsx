@@ -72,6 +72,7 @@ export default function DiscordChannels() {
   const setFilter = (v: string) => setFilters({ filter: v });
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(getCollapseState);
   const [actionLoading, setActionLoading] = useState<Record<string, string>>({}); // channelId -> action key
+  const [togglingEnabled, setTogglingEnabled] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState('');
 
@@ -220,23 +221,47 @@ export default function DiscordChannels() {
     }
   };
 
+  const handleToggleEnabled = async (ch: MergedChannel) => {
+    const job = jobsByChannel[ch.id];
+    if (!job) return;
+    const jobId = job._id || job.id;
+    setTogglingEnabled(p => ({ ...p, [ch.id]: true }));
+    try {
+      await discordApi(`/api/jobs/${jobId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: !job.enabled }),
+      });
+      const freshJobs = await discordApi<Job[]>('/api/jobs');
+      setJobs(Array.isArray(freshJobs) ? freshJobs : []);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setTogglingEnabled(p => { const n = { ...p }; delete n[ch.id]; return n; });
+    }
+  };
+
   const renderBadge = (ch: MergedChannel) => {
     const job = jobsByChannel[ch.id];
-    if (!job || !job.enabled) return null;
-    const label = job.cadencePreset === '1d' ? '✓ synced daily' : job.cadencePreset === '4h' ? '✓ synced 4h' : '✓ synced';
-    return <span style={{ background: '#1a3a1a', color: '#4ade80', fontSize: 11, padding: '2px 6px', borderRadius: 4, marginLeft: 8 }}>{label}</span>;
+    if (!job) return null;
+    const cadenceLabel = job.cadencePreset === '1d' ? 'synced daily' : job.cadencePreset === '4h' ? 'synced 4h' : 'synced';
+    if (job.enabled) {
+      return <span style={{ background: '#1a3a1a', color: '#4ade80', fontSize: 11, padding: '2px 6px', borderRadius: 4, marginLeft: 8 }}>✓ {cadenceLabel}</span>;
+    }
+    return <span style={{ background: '#555', color: '#999', fontSize: 11, padding: '2px 6px', borderRadius: 4, marginLeft: 8 }}>⏸ {cadenceLabel}</span>;
   };
 
   const renderRow = (ch: MergedChannel) => {
     const job = jobsByChannel[ch.id];
     const isLoading = !!actionLoading[ch.id];
-    const active1d = job?.cadencePreset === '1d' && job?.enabled;
-    const active4h = job?.cadencePreset === '4h' && job?.enabled;
+    const active1d = job?.cadencePreset === '1d';
+    const active4h = job?.cadencePreset === '4h';
+    const jobEnabled = job?.enabled ?? false;
     const btnStyle = (active: boolean): React.CSSProperties => ({
       padding: '3px 8px', fontSize: 12, borderRadius: 4, border: '1px solid',
-      borderColor: active ? '#4ade80' : '#555', background: active ? '#1a3a1a' : 'transparent',
-      color: active ? '#4ade80' : '#ccc', cursor: isLoading ? 'wait' : 'pointer', marginLeft: 4,
+      borderColor: (active && jobEnabled) ? '#4ade80' : '#555', background: (active && jobEnabled) ? '#1a3a1a' : 'transparent',
+      color: (active && jobEnabled) ? '#4ade80' : '#ccc', cursor: isLoading ? 'wait' : 'pointer', marginLeft: 4,
     });
+    const toggleBusy = !!togglingEnabled[ch.id];
     return (
       <tr key={ch.id} style={{ borderBottom: '1px solid #333' }}>
         <td style={{ padding: '6px 8px' }}>
@@ -250,6 +275,23 @@ export default function DiscordChannels() {
         </td>
         <td style={{ padding: '6px 8px', textAlign: 'right' }}>{ch.messageCount.toLocaleString()}</td>
         <td style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+          {job && (
+            <button
+              onClick={() => handleToggleEnabled(ch)}
+              disabled={toggleBusy}
+              style={{
+                position: 'relative', width: 36, height: 20, borderRadius: 10, border: 'none',
+                background: jobEnabled ? '#4ade80' : '#555', cursor: toggleBusy ? 'wait' : 'pointer',
+                marginRight: 8, verticalAlign: 'middle', padding: 0, transition: 'background 0.2s',
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, left: jobEnabled ? 18 : 2,
+                width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                transition: 'left 0.2s', display: 'block',
+              }} />
+            </button>
+          )}
           <button style={btnStyle(!!active1d)} disabled={isLoading} onClick={() => handleSchedule(ch, '1d')}>Every day</button>
           <button style={btnStyle(!!active4h)} disabled={isLoading} onClick={() => handleSchedule(ch, '4h')}>Every 4h</button>
           <button style={{ ...btnStyle(false), borderColor: '#666' }} disabled={isLoading} onClick={() => handleBackfill(ch)}>
