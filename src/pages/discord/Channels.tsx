@@ -258,8 +258,10 @@ export default function DiscordChannels() {
     const jobEnabled = job?.enabled ?? false;
     const btnStyle = (active: boolean): React.CSSProperties => ({
       padding: '3px 8px', fontSize: 12, borderRadius: 4, border: '1px solid',
-      borderColor: (active && jobEnabled) ? '#4ade80' : '#555', background: (active && jobEnabled) ? '#1a3a1a' : 'transparent',
-      color: (active && jobEnabled) ? '#4ade80' : '#ccc', cursor: isLoading ? 'wait' : 'pointer', marginLeft: 4,
+      borderColor: (active && jobEnabled) ? '#4ade80' : (active && !jobEnabled) ? '#555' : '#444',
+      background: (active && jobEnabled) ? '#1a3a1a' : (active && !jobEnabled) ? '#1e1e1e' : 'transparent',
+      color: (active && jobEnabled) ? '#4ade80' : (active && !jobEnabled) ? '#666' : '#999',
+      cursor: isLoading ? 'wait' : 'pointer', marginLeft: 4,
     });
     const toggleBusy = !!togglingEnabled[ch.id];
     return (
