@@ -1,0 +1,262 @@
+:root {
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: #0f1117;
+  color: #e0e0e0;
+  font-family: system-ui, -apple-system, sans-serif;
+  margin: 0;
+}
+
+a { color: #64b5f6; }
+
+input, select, textarea {
+  background: #1a1f2e;
+  color: #e0e0e0;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: #64b5f6;
+}
+
+button {
+  background: #1a1f2e;
+  color: #e0e0e0;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s;
+}
+
+button:hover:not(:disabled) {
+  background: #252b3b;
+  border-color: #64b5f6;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  border-bottom: 2px solid #333;
+  color: #888;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 6px;
+  text-align: left;
+}
+
+td {
+  border-bottom: 1px solid #1e2230;
+  padding: 8px 6px;
+}
+
+tr:hover { background: #161a26; }
+
+code {
+  background: #1a1f2e;
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: #4fc3f7;
+  font-size: 13px;
+}
+
+/* Layout */
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 220px;
+  background: #13151e;
+  border-right: 1px solid #1e2230;
+  padding: 20px 0;
+  flex-shrink: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  overflow-y: auto;
+}
+
+.sidebar-logo {
+  padding: 0 20px 20px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #64b5f6;
+  border-bottom: 1px solid #1e2230;
+  margin-bottom: 12px;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 8px;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  text-decoration: none;
+  color: #999;
+  font-size: 14px;
+  transition: all 0.15s;
+}
+
+.sidebar-link:hover {
+  background: #1a1f2e;
+  color: #e0e0e0;
+}
+
+.sidebar-link.active {
+  background: #1a2744;
+  color: #64b5f6;
+}
+
+.main-content {
+  flex: 1;
+  margin-left: 220px;
+  padding: 24px 32px;
+  max-width: 1200px;
+}
+
+.page-title {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 20px 0;
+}
+
+.card {
+  background: #161a26;
+  border: 1px solid #1e2230;
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+
+.stat-card {
+  text-align: center;
+  min-width: 100px;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #64b5f6;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #888;
+  margin-top: 4px;
+}
+
+.filters-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.toast {
+  background: #1b3a2a;
+  border: 1px solid #2e7d32;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  cursor: pointer;
+}
+
+.error-box {
+  background: #3a1b1b;
+  border: 1px solid #7d2e2e;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  color: #ff6b6b;
+}
+
+.pager {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 16px;
+  color: #888;
+  font-size: 14px;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-content {
+  background: #161a26;
+  border: 1px solid #2a2e3e;
+  border-radius: 10px;
+  padding: 24px;
+  max-width: 960px;
+  width: 92%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 60px;
+    padding: 12px 0;
+  }
+  .sidebar-logo {
+    padding: 0 8px 12px;
+    font-size: 14px;
+    text-align: center;
+  }
+  .sidebar-link {
+    justify-content: center;
+    padding: 10px 8px;
+  }
+  .sidebar-link span:last-child {
+    display: none;
+  }
+  .main-content {
+    margin-left: 60px;
+    padding: 16px;
+  }
+}
