@@ -33,6 +33,7 @@ interface BackfillRun {
   completedAt?: string;
   status: string;
   attachmentMode?: string;
+  channelId?: string;
   stats: {
     totalMessages?: number;
     messagesWithAttachments?: number;
@@ -215,6 +216,23 @@ export default function DiscordBackfill() {
       });
       setRunStatus('running');
       connectSSE(activeRunId);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const cancelRun = async (runId: string) => {
+    try {
+      await discordApi<any>('/api/backfill/pause', {
+        method: 'POST',
+        body: JSON.stringify({ runId }),
+      });
+      if (activeRunId === runId) {
+        setRunStatus('paused');
+        if (eventSourceRef.current) eventSourceRef.current.close();
+        setActiveRunId(null);
+      }
+      loadRuns();
     } catch (e: any) {
       setError(e.message);
     }
@@ -477,6 +495,7 @@ export default function DiscordBackfill() {
               <tr>
                 <th>Started</th>
                 <th>Status</th>
+                <th>Channel</th>
                 <th>Mode</th>
                 <th>Messages</th>
                 <th>Downloaded</th>
@@ -484,6 +503,7 @@ export default function DiscordBackfill() {
                 <th>Skipped</th>
                 <th>Errors</th>
                 <th>Duration</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -508,6 +528,11 @@ export default function DiscordBackfill() {
                           {run.status}
                         </span>
                       </td>
+                      <td style={{ fontSize: 12 }}>
+                        {run.channelId
+                          ? (channels[run.channelId]?.channelName || run.channelId)
+                          : 'All channels'}
+                      </td>
                       <td style={{ fontSize: 12 }}>{run.attachmentMode === 'force' ? '⚡ Force' : '📋 Default'}</td>
                       <td>{run.stats?.totalMessages ?? '—'}</td>
                       <td>{run.stats?.downloadedAttachments ?? '—'}</td>
@@ -517,10 +542,23 @@ export default function DiscordBackfill() {
                         {run.stats?.errors ?? '—'}
                       </td>
                       <td>{dur != null ? formatDuration(dur) : '—'}</td>
+                      <td>
+                        {run.status === 'running' && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); cancelRun(run.runId); }}
+                            style={{
+                              padding: '4px 10px', borderRadius: 4, border: 'none', fontWeight: 600,
+                              fontSize: 11, cursor: 'pointer', background: '#7f1d1d', color: '#fca5a5',
+                            }}
+                          >
+                            ✕ Cancel
+                          </button>
+                        )}
+                      </td>
                     </tr>
                     {expanded && (
                       <tr>
-                        <td colSpan={9} style={{ background: '#0d1f3c', padding: 12, fontSize: 12 }}>
+                        <td colSpan={11} style={{ background: '#0d1f3c', padding: 12, fontSize: 12 }}>
                           <div><strong>Run ID:</strong> <code>{run.runId}</code></div>
                           <div><strong>Started:</strong> {started.toISOString()}</div>
                           {completed && <div><strong>Completed:</strong> {completed.toISOString()}</div>}
