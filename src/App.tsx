@@ -9,6 +9,7 @@ import DiscordDashboard from './pages/discord/Dashboard';
 import DiscordChannels from './pages/discord/Channels';
 import DiscordBackfill from './pages/discord/Backfill';
 import DiscordScheduled from './pages/discord/Scheduled';
+import DiscordJobs from './pages/discord/Jobs';
 import IngestorPlaceholder from './pages/IngestorPlaceholder';
 import { getServiceConfig, checkHealth, ServiceConfig } from './api';
 
@@ -35,6 +36,7 @@ const sections: SidebarSection[] = [
     key: 'discord', icon: '🔵', label: 'Discord Ingestor', serviceKey: 'discord-ingestor',
     items: [
       { to: '/discord/dashboard', icon: '📊', label: 'Dashboard' },
+      { to: '/discord/jobs', icon: '📋', label: 'Jobs' },
       { to: '/discord/channels', icon: '📺', label: 'Channels' },
       { to: '/discord/backfill', icon: '⏪', label: 'Backfill' },
       { to: '/discord/scheduled', icon: '⏰', label: 'Scheduled' },
@@ -143,6 +145,7 @@ export default function App() {
           <Route path="/memory/attachments" element={<Attachments />} />
           {/* Discord Ingestor */}
           <Route path="/discord/dashboard" element={<DiscordDashboard />} />
+          <Route path="/discord/jobs" element={<DiscordJobs />} />
           <Route path="/discord/channels" element={<DiscordChannels />} />
           <Route path="/discord/backfill" element={<DiscordBackfill />} />
           <Route path="/discord/scheduled" element={<DiscordScheduled />} />
