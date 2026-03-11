@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { discordApi } from '../../api';
+import { discordApi, apiFetch } from '../../api';
 
 interface Job {
   id: string;
@@ -58,6 +58,7 @@ function computeNextRun(lastRunAt?: string, intervalMinutes?: number): string {
 export default function DiscordScheduled() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [channels, setChannels] = useState<Record<string, ChannelInfo>>({});
+  const [channelStats, setChannelStats] = useState<Record<string, { lastMessageAt: string; messageCount: number }>>({});
   const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -80,7 +81,8 @@ export default function DiscordScheduled() {
       discordApi<any>('/api/jobs'),
       discordApi<any>('/api/scheduler/status'),
       discordApi<any>('/api/channels'),
-    ]).then(([jobsRes, schedRes, chRes]) => {
+      apiFetch<any>('/api/discord/channels/stats'),
+    ]).then(([jobsRes, schedRes, chRes, statsRes]) => {
       if (jobsRes.status === 'fulfilled') {
         setJobs(Array.isArray(jobsRes.value) ? jobsRes.value : jobsRes.value?.jobs || []);
       }
@@ -91,6 +93,9 @@ export default function DiscordScheduled() {
         const d = chRes.value;
         const chMap = d.channels || d;
         if (chMap && typeof chMap === 'object') setChannels(chMap);
+      }
+      if (statsRes.status === 'fulfilled' && statsRes.value?.channels) {
+        setChannelStats(statsRes.value.channels);
       }
     }).catch(e => setError(e.message)).finally(() => setLoading(false));
   }, []);
@@ -234,6 +239,7 @@ export default function DiscordScheduled() {
                   <th>Schedule</th>
                   <th>Channel</th>
                   <th>Last Run</th>
+                  <th>Last Message</th>
                   <th>Next Run</th>
                   <th>Actions</th>
                 </tr>
@@ -254,6 +260,7 @@ export default function DiscordScheduled() {
                       <td><code>{formatSchedule(job.intervalMinutes)}</code></td>
                       <td>{resolveChannelName(channelId)}</td>
                       <td title={job.lastRunAt || job.lastRun || ''}>{relativeTime(job.lastRunAt || job.lastRun)}</td>
+                      <td title={channelStats[channelId || '']?.lastMessageAt || ''}>{relativeTime(channelStats[channelId || '']?.lastMessageAt)}</td>
                       <td>{computeNextRun(job.lastRunAt || job.lastRun, job.intervalMinutes)}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 4, alignItems: 'center', position: 'relative' }}>
