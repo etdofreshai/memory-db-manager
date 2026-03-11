@@ -137,7 +137,7 @@ export default function Cleanup() {
   };
 
   const hasFilters = !!(sourceId || channel || sender || dateFrom || dateTo);
-  const resetFilters = () => { setSourceId(''); setChannel(''); setSender(''); setDateFrom(''); setDateTo(''); };
+  const resetFilters = () => { resetPersistedFilters(); };
 
   const resolvePreviewChannel = (ch: string): string => {
     if (ch?.startsWith('discord-channel:')) return resolveDisplayName(ch);
@@ -175,7 +175,7 @@ export default function Cleanup() {
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={loadStats} disabled={loading} style={{ flex: 1 }}>{loading ? '⏳ Loading...' : '🔍 Apply'}</button>
-              {hasFilters && <button onClick={resetFilters}>Reset</button>}
+              <ResetFiltersButton onReset={resetFilters} visible={isDirtyFilters} />
             </div>
           </div>
         </div>

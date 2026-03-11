@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { discordApi } from '../../api';
+import { usePersistedFilters } from '../../hooks/usePersistedFilters';
+import ResetFiltersButton from '../../components/ResetFiltersButton';
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -46,14 +48,17 @@ interface BackfillRun {
 export default function DiscordBackfill() {
   // Channels
   const [channels, setChannels] = useState<Record<string, ChannelInfo>>({});
-  const [selectedChannel, setSelectedChannel] = useState('');
-  const [allChannels, setAllChannels] = useState(true);
 
-  // Backfill options
-  const [forceMode, setForceMode] = useState(false);
-  const [batchSize, setBatchSize] = useState(10);
-  const [limit, setLimit] = useState('');
-  const [dryRun, setDryRun] = useState(false);
+  // Persisted backfill options
+  const BACKFILL_DEFAULTS = { selectedChannel: '', allChannels: true, forceMode: false, batchSize: 10, limit: '', dryRun: false };
+  const [bfFilters, setBfFilters, resetBfFilters, isBfDirty] = usePersistedFilters('filters:discord-backfill', BACKFILL_DEFAULTS);
+  const { selectedChannel, allChannels, forceMode, batchSize, limit, dryRun } = bfFilters;
+  const setSelectedChannel = (v: string) => setBfFilters({ selectedChannel: v });
+  const setAllChannels = (v: boolean) => setBfFilters({ allChannels: v });
+  const setForceMode = (v: boolean) => setBfFilters({ forceMode: v });
+  const setBatchSize = (v: number) => setBfFilters({ batchSize: v });
+  const setLimit = (v: string) => setBfFilters({ limit: v });
+  const setDryRun = (v: boolean) => setBfFilters({ dryRun: v });
 
   // Active run
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -250,7 +255,10 @@ export default function DiscordBackfill() {
 
       {/* ── Start Backfill Form ─────────────────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <h3 style={{ margin: '0 0 16px' }}>Start Backfill</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ margin: 0 }}>Start Backfill</h3>
+          <ResetFiltersButton onReset={resetBfFilters} visible={isBfDirty} />
+        </div>
 
         {/* Mode explanation */}
         <div style={{ marginBottom: 16, padding: 12, background: '#0d1f3c', borderRadius: 6, fontSize: 13 }}>

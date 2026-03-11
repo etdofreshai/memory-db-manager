@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { discordApi } from '../../api';
+import { usePersistedFilters } from '../../hooks/usePersistedFilters';
+import ResetFiltersButton from '../../components/ResetFiltersButton';
 
 interface Channel {
   id: string;
@@ -15,7 +17,9 @@ export default function DiscordChannels() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('');
+  const [filters, setFilters, resetFilters, isDirty] = usePersistedFilters('filters:discord-channels', { filter: '' });
+  const filter = filters.filter;
+  const setFilter = (v: string) => setFilters({ filter: v });
 
   useEffect(() => {
     discordApi<any>('/api/channels')
@@ -45,6 +49,7 @@ export default function DiscordChannels() {
           style={{ minWidth: 250 }}
         />
         <span style={{ color: '#888', fontSize: 13 }}>{filtered.length} channels</span>
+        <ResetFiltersButton onReset={resetFilters} visible={isDirty} />
       </div>
 
       {loading ? <p>Loading...</p> : (

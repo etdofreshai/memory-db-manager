@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import DetailModal from '../components/DetailModal';
+import { usePersistedFilters } from '../hooks/usePersistedFilters';
+import ResetFiltersButton from '../components/ResetFiltersButton';
+
+const FILTER_DEFAULTS = { search: '' };
 
 export default function People() {
+  const [filters, setFilters, resetFilters, isDirty] = usePersistedFilters('filters:people', FILTER_DEFAULTS);
   const [people, setPeople] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
+  const search = filters.search;
+  const setSearch = (v: string) => setFilters({ search: v });
   const [selected, setSelected] = useState<any>(null);
 
   useEffect(() => {
@@ -29,6 +35,7 @@ export default function People() {
       <div className="filters-bar">
         <input placeholder="Search people..." value={search} onChange={e => setSearch(e.target.value)} style={{ minWidth: 260 }} />
         <span style={{ color: '#888', fontSize: 14 }}>{filtered.length} contacts</span>
+        <ResetFiltersButton onReset={resetFilters} visible={isDirty} />
       </div>
 
       <div className="card" style={{ padding: 0, overflow: 'auto' }}>

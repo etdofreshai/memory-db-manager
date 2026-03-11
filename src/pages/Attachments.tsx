@@ -3,22 +3,24 @@ import { apiFetch } from '../api';
 import Pager from '../components/Pager';
 import DetailModal from '../components/DetailModal';
 import { AttachmentLink } from '../components/AttachmentPreview';
+import { usePersistedFilters } from '../hooks/usePersistedFilters';
+import ResetFiltersButton from '../components/ResetFiltersButton';
 
 const PAGE_SIZE = 50;
+const FILTER_DEFAULTS = { searchInput: '', q: '', mimeType: '', fileType: '' };
 
 export default function Attachments() {
+  const [filters, setFilters, resetFilters, isDirty] = usePersistedFilters('filters:attachments', FILTER_DEFAULTS);
   const [rows, setRows] = useState<any[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [q, setQ] = useState('');
-  const [mimeType, setMimeType] = useState('');
-  const [fileType, setFileType] = useState('');
   const [selected, setSelected] = useState<any>(null);
   const [linkedMsgs, setLinkedMsgs] = useState<any[]>([]);
+
+  const { searchInput, q, mimeType, fileType } = filters;
 
   useEffect(() => {
     setLoading(true); setError('');
@@ -45,14 +47,15 @@ export default function Attachments() {
       <h1 className="page-title">📎 Attachments</h1>
 
       <div className="filters-bar">
-        <input placeholder="Search filename/summary/OCR" value={searchInput} onChange={e => setSearchInput(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') { setQ(searchInput.trim()); setPage(1); } }} style={{ minWidth: 220 }} />
-        <button onClick={() => { setQ(searchInput.trim()); setPage(1); }}>Search</button>
-        {q && <button onClick={() => { setSearchInput(''); setQ(''); setPage(1); }}>Clear</button>}
-        <input placeholder="MIME type" value={mimeType} onChange={e => setMimeType(e.target.value)}
+        <input placeholder="Search filename/summary/OCR" value={searchInput} onChange={e => setFilters({ searchInput: e.target.value })}
+          onKeyDown={e => { if (e.key === 'Enter') { setFilters({ q: searchInput.trim() }); setPage(1); } }} style={{ minWidth: 220 }} />
+        <button onClick={() => { setFilters({ q: searchInput.trim() }); setPage(1); }}>Search</button>
+        {q && <button onClick={() => { setFilters({ searchInput: '', q: '' }); setPage(1); }}>Clear</button>}
+        <input placeholder="MIME type" value={mimeType} onChange={e => setFilters({ mimeType: e.target.value })}
           onKeyDown={e => { if (e.key === 'Enter') setPage(1); }} style={{ width: 140 }} />
-        <input placeholder="File type" value={fileType} onChange={e => setFileType(e.target.value)}
+        <input placeholder="File type" value={fileType} onChange={e => setFilters({ fileType: e.target.value })}
           onKeyDown={e => { if (e.key === 'Enter') setPage(1); }} style={{ width: 120 }} />
+        <ResetFiltersButton onReset={() => { resetFilters(); setPage(1); }} visible={isDirty} />
       </div>
 
       {error && <div className="error-box">{error}</div>}
