@@ -78,7 +78,7 @@ export default function DiscordChannels() {
   const fetchAll = useCallback(() => {
     Promise.all([
       discordApi<Record<string, ChannelInfo>>('/api/channels'),
-      apiFetch<{ channels: Record<string, ChannelStats> }>('/api/discord/channel-stats'),
+      apiFetch<{ channels: Record<string, ChannelStats> }>('/api/discord/channels/stats'),
       discordApi<Job[]>('/api/jobs'),
     ])
       .then(([chMap, statsData, jobsData]) => {
