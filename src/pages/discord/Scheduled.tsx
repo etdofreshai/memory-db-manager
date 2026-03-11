@@ -1,48 +1,205 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { discordApi } from '../../api';
 
 interface Job {
   id: string;
   name?: string;
+  channel?: string;
   channelId?: string;
   channelName?: string;
   cron?: string;
   schedule?: string;
   enabled?: boolean;
   lastRun?: string;
+  lastRunAt?: string;
   nextRun?: string;
+  intervalMinutes?: number;
+  sincePreset?: string;
+  cadencePreset?: string;
+}
+
+interface ChannelInfo {
+  channelName: string;
+  guildName?: string;
+}
+
+const SINCE_OPTIONS = ['1h', '4h', '12h', '1d', '7d', '30d'];
+const CADENCE_OPTIONS = ['1h', '4h', '12h', '1d', '7d', '30d'];
+
+function formatSchedule(minutes?: number): string {
+  if (!minutes) return '—';
+  if (minutes < 60) return `every ${minutes}m`;
+  if (minutes < 1440) return `every ${Math.round(minutes / 60)}h`;
+  return `every ${Math.round(minutes / 1440)}d`;
+}
+
+function relativeTime(iso?: string): string {
+  if (!iso) return '—';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 0) {
+    const absDiff = Math.abs(diff);
+    if (absDiff < 60000) return `in ${Math.round(absDiff / 1000)}s`;
+    if (absDiff < 3600000) return `in ${Math.round(absDiff / 60000)}m`;
+    if (absDiff < 86400000) return `in ${Math.round(absDiff / 3600000)}h`;
+    return `in ${Math.round(absDiff / 86400000)}d`;
+  }
+  if (diff < 60000) return `${Math.round(diff / 1000)}s ago`;
+  if (diff < 3600000) return `${Math.round(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.round(diff / 3600000)}h ago`;
+  return `${Math.round(diff / 86400000)}d ago`;
+}
+
+function computeNextRun(lastRunAt?: string, intervalMinutes?: number): string {
+  if (!lastRunAt || !intervalMinutes) return '—';
+  const next = new Date(new Date(lastRunAt).getTime() + intervalMinutes * 60000);
+  return relativeTime(next.toISOString());
 }
 
 export default function DiscordScheduled() {
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [channels, setChannels] = useState<Record<string, ChannelInfo>>({});
   const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [editJob, setEditJob] = useState<Job | null>(null);
+  const [editForm, setEditForm] = useState<any>({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const refreshJobs = async () => {
+    try {
+      const data = await discordApi<any>('/api/jobs');
+      setJobs(Array.isArray(data) ? data : data?.jobs || []);
+    } catch {}
+  };
 
   useEffect(() => {
     Promise.allSettled([
       discordApi<any>('/api/jobs'),
       discordApi<any>('/api/scheduler/status'),
-    ]).then(([jobsRes, schedRes]) => {
+      discordApi<any>('/api/channels'),
+    ]).then(([jobsRes, schedRes, chRes]) => {
       if (jobsRes.status === 'fulfilled') {
         setJobs(Array.isArray(jobsRes.value) ? jobsRes.value : jobsRes.value?.jobs || []);
       }
       if (schedRes.status === 'fulfilled') {
         setSchedulerStatus(schedRes.value);
       }
+      if (chRes.status === 'fulfilled') {
+        const d = chRes.value;
+        const chMap = d.channels || d;
+        if (chMap && typeof chMap === 'object') setChannels(chMap);
+      }
     }).catch(e => setError(e.message)).finally(() => setLoading(false));
   }, []);
+
+  // Close menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const resolveChannelName = (channelId?: string): string => {
+    if (!channelId) return '—';
+    const info = channels[channelId];
+    return info?.channelName || channelId;
+  };
 
   const triggerJob = async (jobId: string) => {
     try {
       await discordApi(`/api/jobs/${jobId}/run`, { method: 'POST' });
-      // Refresh
-      const data = await discordApi<any>('/api/jobs');
-      setJobs(Array.isArray(data) ? data : data?.jobs || []);
+      setTimeout(refreshJobs, 1500);
     } catch (e: any) {
       setError(e.message);
     }
   };
+
+  const toggleEnabled = async (jobId: string, enabled: boolean) => {
+    try {
+      await discordApi(`/api/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      await refreshJobs();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const toggleAllEnabled = async (enabled: boolean) => {
+    try {
+      await Promise.all(jobs.map(j =>
+        discordApi(`/api/jobs/${j.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled }),
+        })
+      ));
+      await refreshJobs();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const deleteJob = async (jobId: string) => {
+    if (!confirm('Delete this job?')) return;
+    try {
+      await discordApi(`/api/jobs/${jobId}`, { method: 'DELETE' });
+      await refreshJobs();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const openEdit = (job: Job) => {
+    setEditJob(job);
+    setEditForm({
+      name: job.name || '',
+      channel: job.channel || job.channelId || '',
+      sincePreset: job.sincePreset || '',
+      cadencePreset: job.cadencePreset || '',
+      intervalMinutes: job.intervalMinutes || 60,
+      enabled: job.enabled !== false,
+    });
+    setEditError('');
+    setMenuOpen(null);
+  };
+
+  const saveEdit = async () => {
+    if (!editJob) return;
+    setEditSaving(true);
+    setEditError('');
+    try {
+      await discordApi(`/api/jobs/${editJob.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editForm.name,
+          channel: editForm.channel,
+          sincePreset: editForm.sincePreset || null,
+          cadencePreset: editForm.cadencePreset || null,
+          intervalMinutes: editForm.intervalMinutes,
+          enabled: editForm.enabled,
+        }),
+      });
+      setEditJob(null);
+      await refreshJobs();
+    } catch (e: any) {
+      setEditError(e.message);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const allEnabled = jobs.length > 0 && jobs.every(j => j.enabled);
 
   return (
     <div>
@@ -52,8 +209,8 @@ export default function DiscordScheduled() {
       {schedulerStatus && (
         <div className="card" style={{ marginBottom: 20 }}>
           <p style={{ margin: 0, color: '#888' }}>
-            Scheduler: <strong style={{ color: ( schedulerStatus.concurrency > 0 || schedulerStatus.runningIds !== undefined) ? '#4caf50' : '#f44336' }}>
-              {( schedulerStatus.concurrency > 0 || schedulerStatus.runningIds !== undefined) ? 'Running' : 'Stopped'}
+            Scheduler: <strong style={{ color: (schedulerStatus.concurrency > 0 || schedulerStatus.runningIds !== undefined) ? '#4caf50' : '#f44336' }}>
+              {(schedulerStatus.concurrency > 0 || schedulerStatus.runningIds !== undefined) ? 'Running' : 'Stopped'}
             </strong>
           </p>
         </div>
@@ -65,6 +222,14 @@ export default function DiscordScheduled() {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 40, textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={allEnabled}
+                      onChange={(e) => toggleAllEnabled(e.target.checked)}
+                      title="Toggle all"
+                    />
+                  </th>
                   <th>Name</th>
                   <th>Schedule</th>
                   <th>Channel</th>
@@ -74,23 +239,170 @@ export default function DiscordScheduled() {
                 </tr>
               </thead>
               <tbody>
-                {jobs.map(job => (
-                  <tr key={job.id}>
-                    <td><strong>{job.name || job.id}</strong></td>
-                    <td><code>{job.cron || job.schedule || '—'}</code></td>
-                    <td>{job.channelName || job.channelId || '—'}</td>
-                    <td>{job.lastRun ? new Date(job.lastRun).toLocaleString() : '—'}</td>
-                    <td>{job.nextRun ? new Date(job.nextRun).toLocaleString() : '—'}</td>
-                    <td>
-                      <button onClick={() => triggerJob(job.id)} style={{ fontSize: 12, padding: '4px 10px' }}>
-                        ▶ Run
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {jobs.map(job => {
+                  const channelId = job.channel || job.channelId;
+                  return (
+                    <tr key={job.id} style={{ opacity: job.enabled === false ? 0.5 : 1 }}>
+                      <td style={{ textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={job.enabled !== false}
+                          onChange={(e) => toggleEnabled(job.id, e.target.checked)}
+                        />
+                      </td>
+                      <td><strong>{job.name || job.id}</strong></td>
+                      <td><code>{formatSchedule(job.intervalMinutes)}</code></td>
+                      <td>{resolveChannelName(channelId)}</td>
+                      <td title={job.lastRunAt || job.lastRun || ''}>{relativeTime(job.lastRunAt || job.lastRun)}</td>
+                      <td>{computeNextRun(job.lastRunAt || job.lastRun, job.intervalMinutes)}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center', position: 'relative' }}>
+                          <button onClick={() => triggerJob(job.id)} style={{ fontSize: 12, padding: '4px 10px' }}>
+                            ▶ Run
+                          </button>
+                          <div style={{ position: 'relative' }} ref={menuOpen === job.id ? menuRef : undefined}>
+                            <button
+                              onClick={() => setMenuOpen(menuOpen === job.id ? null : job.id)}
+                              style={{ fontSize: 14, padding: '4px 8px', cursor: 'pointer', background: 'none', border: '1px solid #555', borderRadius: 4, color: '#ccc' }}
+                            >
+                              ⋯
+                            </button>
+                            {menuOpen === job.id && (
+                              <div style={{
+                                position: 'absolute', right: 0, top: '100%', marginTop: 4,
+                                background: '#2f3136', border: '1px solid #555', borderRadius: 6,
+                                zIndex: 50, minWidth: 120, boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+                              }}>
+                                <button
+                                  onClick={() => openEdit(job)}
+                                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#e0e0e0', cursor: 'pointer', fontSize: 13 }}
+                                  onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                                  onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                                >
+                                  ✏️ Edit
+                                </button>
+                                <button
+                                  onClick={() => { setMenuOpen(null); deleteJob(job.id); }}
+                                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 13 }}
+                                  onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                                  onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                                >
+                                  🗑️ Delete
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {editJob && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setEditJob(null); }}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+          }}
+        >
+          <div style={{
+            background: '#2f3136', border: '1px solid #555', borderRadius: 12,
+            padding: 24, width: '100%', maxWidth: 480,
+          }}>
+            <h2 style={{ margin: '0 0 16px', fontSize: '1.1rem', color: '#fff' }}>✏️ Edit Job</h2>
+
+            {editError && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{editError}</div>}
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, color: '#aaa', marginBottom: 4 }}>Name</label>
+              <input
+                type="text" value={editForm.name}
+                onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                style={{ width: '100%', padding: '6px 10px', background: '#40444b', border: '1px solid #555', borderRadius: 6, color: '#e0e0e0' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, color: '#aaa', marginBottom: 4 }}>Channel ID</label>
+              <input
+                type="text" value={editForm.channel}
+                onChange={e => setEditForm({ ...editForm, channel: e.target.value })}
+                style={{ width: '100%', padding: '6px 10px', background: '#40444b', border: '1px solid #555', borderRadius: 6, color: '#e0e0e0' }}
+              />
+              {channels[editForm.channel] && (
+                <div style={{ fontSize: 11, color: '#7289da', marginTop: 2 }}>
+                  #{channels[editForm.channel].channelName}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#aaa', marginBottom: 4 }}>Since Preset</label>
+                <select
+                  value={editForm.sincePreset}
+                  onChange={e => setEditForm({ ...editForm, sincePreset: e.target.value })}
+                  style={{ width: '100%', padding: '6px 10px', background: '#40444b', border: '1px solid #555', borderRadius: 6, color: '#e0e0e0' }}
+                >
+                  <option value="">— None —</option>
+                  {SINCE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#aaa', marginBottom: 4 }}>Cadence Preset</label>
+                <select
+                  value={editForm.cadencePreset}
+                  onChange={e => setEditForm({ ...editForm, cadencePreset: e.target.value })}
+                  style={{ width: '100%', padding: '6px 10px', background: '#40444b', border: '1px solid #555', borderRadius: 6, color: '#e0e0e0' }}
+                >
+                  <option value="">— None —</option>
+                  {CADENCE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, color: '#aaa', marginBottom: 4 }}>Interval Minutes</label>
+              <input
+                type="number" value={editForm.intervalMinutes}
+                onChange={e => setEditForm({ ...editForm, intervalMinutes: parseInt(e.target.value) || 60 })}
+                style={{ width: 120, padding: '6px 10px', background: '#40444b', border: '1px solid #555', borderRadius: 6, color: '#e0e0e0' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: '#ccc' }}>
+                <input
+                  type="checkbox" checked={editForm.enabled}
+                  onChange={e => setEditForm({ ...editForm, enabled: e.target.checked })}
+                />
+                Enabled
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setEditJob(null)}
+                style={{ padding: '8px 16px', background: '#4f545c', border: 'none', borderRadius: 6, color: '#ccc', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEdit}
+                disabled={editSaving}
+                style={{ padding: '8px 16px', background: '#7289da', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer' }}
+              >
+                {editSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
