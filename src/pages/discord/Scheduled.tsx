@@ -316,7 +316,6 @@ export default function DiscordScheduled() {
                           return (
                             <div>
                               <div style={{ fontWeight: 600 }}>{info?.channelName || channelId || '—'}</div>
-                              {channelId && <div style={{ fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{channelId}</div>}
                               {info?.guildName && <div style={{ fontSize: 11, color: '#666' }}>{info.guildName}</div>}
                             </div>
                           );
