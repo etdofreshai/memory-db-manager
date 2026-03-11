@@ -253,26 +253,26 @@ export default function DiscordScheduled() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <h1 className="page-title" style={{ margin: 0 }}>⏰ Scheduled Jobs</h1>
-        <button
-          onClick={() => {
-            const stale = findStaleJobs();
-            if (stale.length === 0) { setStaleToast('No stale jobs found (all active within 100 days)'); setTimeout(() => setStaleToast(''), 4000); return; }
-            setStaleConfirm(stale);
-          }}
-          style={{ padding: '6px 14px', background: '#f59e0b22', border: '1px solid #f59e0b', borderRadius: 6, color: '#f59e0b', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}
-        >
-          ⚠️ Disable Stale Jobs
-        </button>
       </div>
       {error && <div className="error-box">{error}</div>}
 
       {schedulerStatus && (
-        <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card" style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <p style={{ margin: 0, color: '#888' }}>
             Scheduler: <strong style={{ color: (schedulerStatus.concurrency > 0 || schedulerStatus.runningIds !== undefined) ? '#4caf50' : '#f44336' }}>
               {(schedulerStatus.concurrency > 0 || schedulerStatus.runningIds !== undefined) ? 'Running' : 'Stopped'}
             </strong>
           </p>
+          <button
+            onClick={() => {
+              const stale = findStaleJobs();
+              if (stale.length === 0) { setStaleToast('No stale jobs found (all active within 100 days)'); setTimeout(() => setStaleToast(''), 4000); return; }
+              setStaleConfirm(stale);
+            }}
+            style={{ padding: '5px 12px', background: '#f59e0b22', border: '1px solid #f59e0b', borderRadius: 6, color: '#f59e0b', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+          >
+            ⚠️ Disable Stale Jobs
+          </button>
         </div>
       )}
 
