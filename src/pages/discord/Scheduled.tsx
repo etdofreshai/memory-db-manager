@@ -111,10 +111,53 @@ export default function DiscordScheduled() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const resolveChannelName = (channelId?: string): string => {
+  const [staleConfirm, setStaleConfirm] = useState<Job[] | null>(null);
+  const [disablingStale, setDisablingStale] = useState(false);
+  const [staleToast, setStaleToast] = useState('');
+
+  const resolveChannelName = (channelId?: string): React.ReactNode => {
     if (!channelId) return '—';
     const info = channels[channelId];
-    return info?.channelName || channelId;
+    if (!info) return <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{channelId}</span>;
+    if (!info.guildName) return <span>{info.channelName}</span>;
+    return (
+      <div>
+        <div style={{ color: '#e0e0e0' }}>#{info.channelName}</div>
+        <div style={{ fontSize: 11, color: '#888' }}>{info.guildName}</div>
+      </div>
+    );
+  };
+
+  const findStaleJobs = (): Job[] => {
+    const threshold = Date.now() - 100 * 86400000;
+    return jobs.filter(j => {
+      if (j.enabled === false) return false;
+      const chId = j.channel || j.channelId;
+      const stats = channelStats[chId || ''];
+      if (!stats?.lastMessageAt) return true;
+      return new Date(stats.lastMessageAt).getTime() < threshold;
+    });
+  };
+
+  const disableStaleJobs = async (staleJobs: Job[]) => {
+    setDisablingStale(true);
+    try {
+      await Promise.all(staleJobs.map(j =>
+        discordApi(`/api/jobs/${j.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: false }),
+        })
+      ));
+      await refreshJobs();
+      setStaleToast(`Disabled ${staleJobs.length} job${staleJobs.length === 1 ? '' : 's'} with no activity in 100+ days`);
+      setTimeout(() => setStaleToast(''), 5000);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setDisablingStale(false);
+      setStaleConfirm(null);
+    }
   };
 
   const triggerJob = async (jobId: string) => {
@@ -208,7 +251,19 @@ export default function DiscordScheduled() {
 
   return (
     <div>
-      <h1 className="page-title">⏰ Scheduled Jobs</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <h1 className="page-title" style={{ margin: 0 }}>⏰ Scheduled Jobs</h1>
+        <button
+          onClick={() => {
+            const stale = findStaleJobs();
+            if (stale.length === 0) { setStaleToast('No stale jobs found (all active within 100 days)'); setTimeout(() => setStaleToast(''), 4000); return; }
+            setStaleConfirm(stale);
+          }}
+          style={{ padding: '6px 14px', background: '#f59e0b22', border: '1px solid #f59e0b', borderRadius: 6, color: '#f59e0b', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}
+        >
+          ⚠️ Disable Stale Jobs
+        </button>
+      </div>
       {error && <div className="error-box">{error}</div>}
 
       {schedulerStatus && (
@@ -410,6 +465,47 @@ export default function DiscordScheduled() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {/* Stale Jobs Confirmation Modal */}
+      {staleConfirm && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setStaleConfirm(null); }}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+          }}
+        >
+          <div style={{
+            background: '#2f3136', border: '1px solid #f59e0b', borderRadius: 12,
+            padding: 24, width: '100%', maxWidth: 480,
+          }}>
+            <h2 style={{ margin: '0 0 12px', fontSize: '1.1rem', color: '#f59e0b' }}>⚠️ Disable Stale Jobs</h2>
+            <p style={{ color: '#ccc', fontSize: 14, margin: '0 0 12px' }}>
+              {staleConfirm.length} job{staleConfirm.length === 1 ? '' : 's'} with no channel activity in 100+ days:
+            </p>
+            <ul style={{ maxHeight: 200, overflowY: 'auto', paddingLeft: 20, color: '#aaa', fontSize: 13, margin: '0 0 16px' }}>
+              {staleConfirm.map(j => <li key={j.id}>{j.name || j.id}</li>)}
+            </ul>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setStaleConfirm(null)} style={{ padding: '8px 16px', background: '#4f545c', border: 'none', borderRadius: 6, color: '#ccc', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => disableStaleJobs(staleConfirm)} disabled={disablingStale} style={{ padding: '8px 16px', background: '#f59e0b', border: 'none', borderRadius: 6, color: '#000', cursor: 'pointer', fontWeight: 600 }}>
+                {disablingStale ? 'Disabling…' : `Disable ${staleConfirm.length} Jobs`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {staleToast && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: '#323529', border: '1px solid #f59e0b', borderRadius: 8,
+          padding: '10px 20px', color: '#f59e0b', fontSize: 14, zIndex: 200,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+        }}>
+          {staleToast}
         </div>
       )}
     </div>
