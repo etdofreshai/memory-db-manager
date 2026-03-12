@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiFetch, chatgptApi } from '../../api';
 
@@ -46,9 +46,10 @@ export default function ConversationView() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const bottomRef = useRef<HTMLDivElement>(null);
   const PAGE_SIZE = 50;
 
-  const fetchMessages = useCallback(async (p: number) => {
+  const fetchMessages = useCallback(async (p: number, scrollToBottom = false) => {
     if (!id) return;
     setLoading(true);
     try {
@@ -58,6 +59,9 @@ export default function ConversationView() {
       setMessages(data.messages || []);
       setTotalPages(data.totalPages || 1);
       setTotal(data.total || 0);
+      if (scrollToBottom) {
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'instant' }), 50);
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -65,9 +69,43 @@ export default function ConversationView() {
     }
   }, [id]);
 
+  // On first load: jump to last page so most recent messages show, then scroll to bottom
   useEffect(() => {
-    fetchMessages(page);
-  }, [fetchMessages, page]);
+    const init = async () => {
+      if (!id) return;
+      setLoading(true);
+      try {
+        const first = await apiFetch<MessagesResponse>(
+          `/api/messages?source=chatgpt&recipient=${encodeURIComponent(id)}&page=1&limit=${PAGE_SIZE}&sort=asc`
+        );
+        const lastPage = first.totalPages || 1;
+        setTotalPages(lastPage);
+        setTotal(first.total || 0);
+        if (lastPage > 1) {
+          const last = await apiFetch<MessagesResponse>(
+            `/api/messages?source=chatgpt&recipient=${encodeURIComponent(id)}&page=${lastPage}&limit=${PAGE_SIZE}&sort=asc`
+          );
+          setMessages(last.messages || []);
+          setPage(lastPage);
+        } else {
+          setMessages(first.messages || []);
+          setPage(1);
+        }
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'instant' }), 50);
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    init();
+  }, [id]);
+
+  // Page changes after initial load
+  const handlePageChange = useCallback((p: number) => {
+    setPage(p);
+    fetchMessages(p, p === totalPages);
+  }, [fetchMessages, totalPages]);
 
   // Try to get conversation title
   useEffect(() => {
@@ -106,7 +144,7 @@ export default function ConversationView() {
           <p style={{ fontSize: 12, marginTop: 8 }}>The conversation may not have been synced yet.</p>
         </div>
       ) : (
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
           {messages.map(msg => {
             const isUser = isUserMessage(msg);
             return (
@@ -140,15 +178,24 @@ export default function ConversationView() {
               </div>
             );
           })}
+          <div ref={bottomRef} />
         </div>
       )}
 
       {totalPages > 1 && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
           <button
             className="btn-secondary"
             disabled={page === 1}
-            onClick={() => setPage(p => Math.max(1, p - 1))}
+            onClick={() => handlePageChange(1)}
+            style={{ padding: '4px 12px', fontSize: 12 }}
+          >
+            ⟨⟨ Oldest
+          </button>
+          <button
+            className="btn-secondary"
+            disabled={page === 1}
+            onClick={() => handlePageChange(Math.max(1, page - 1))}
             style={{ padding: '4px 12px' }}
           >
             ← Prev
@@ -157,10 +204,18 @@ export default function ConversationView() {
           <button
             className="btn-secondary"
             disabled={page === totalPages}
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            onClick={() => handlePageChange(Math.min(totalPages, page + 1))}
             style={{ padding: '4px 12px' }}
           >
             Next →
+          </button>
+          <button
+            className="btn-secondary"
+            disabled={page === totalPages}
+            onClick={() => handlePageChange(totalPages)}
+            style={{ padding: '4px 12px', fontSize: 12 }}
+          >
+            Newest ⟩⟩
           </button>
         </div>
       )}
