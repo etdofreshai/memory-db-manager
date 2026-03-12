@@ -44,6 +44,7 @@ interface UnifiedJob {
   channelName: string;
   serverName: string;
   status: string;
+  queuedAt?: string;
   startedAt: string;
   completedAt?: string;
   duration: string;
@@ -198,6 +199,7 @@ export default function DiscordJobs() {
           channelName: ch.name,
           serverName: ch.server,
           status: 'queued',
+          queuedAt: q.addedAt || q.queuedAt,
           startedAt: q.addedAt || new Date().toISOString(),
           duration: '—',
           messages: 0,
@@ -343,6 +345,7 @@ export default function DiscordJobs() {
                 <th style={{ padding: '8px 12px' }}>Type</th>
                 <th style={{ padding: '8px 12px' }}>Channel</th>
                 <th style={{ padding: '8px 12px' }}>Status</th>
+                <th style={{ padding: '8px 12px' }}>Queued</th>
                 <th style={{ padding: '8px 12px' }}>Started</th>
                 <th style={{ padding: '8px 12px' }}>Duration</th>
                 <th style={{ padding: '8px 12px' }}>Messages</th>
@@ -352,7 +355,7 @@ export default function DiscordJobs() {
             </thead>
             <tbody>
               {recentJobs.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>No recent jobs</td></tr>
+                <tr><td colSpan={9} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>No recent jobs</td></tr>
               ) : (
                 recentJobs.map(job => (
                   <tr key={`${job.type}-${job.id}`} style={{ borderBottom: '1px solid #1f2937' }}>
@@ -362,8 +365,9 @@ export default function DiscordJobs() {
                       {job.serverName && <div style={{ fontSize: 11, color: '#6b7280' }}>{job.serverName}</div>}
                     </td>
                     <td style={{ padding: '8px 12px', color: statusColor(job.status), fontWeight: 600 }}>{job.status}</td>
+                    <td style={{ padding: '8px 12px', color: '#9ca3af' }}>{job.queuedAt ? relativeTime(job.queuedAt) : '—'}</td>
                     <td style={{ padding: '8px 12px', color: '#9ca3af' }}>{relativeTime(job.startedAt)}</td>
-                    <td style={{ padding: '8px 12px', color: '#9ca3af' }}>{job.duration}</td>
+                    <td style={{ padding: '8px 12px', color: '#9ca3af' }}>{job.completedAt ? durationStr(job.startedAt, job.completedAt) : (job.status === 'running' ? durationStr(job.startedAt, new Date().toISOString()) : '—')}</td>
                     <td style={{ padding: '8px 12px' }}>{job.messages || '—'}</td>
                     <td style={{ padding: '8px 12px', color: job.errors ? '#ef4444' : '#6b7280' }}>{job.errors || '—'}</td>
                     <td style={{ padding: '8px 12px' }}>
