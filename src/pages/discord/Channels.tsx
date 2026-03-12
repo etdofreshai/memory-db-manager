@@ -79,6 +79,20 @@ export default function DiscordChannels() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState('');
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [scheduleMenuOpen, setScheduleMenuOpen] = useState<string | null>(null);
+
+  const CADENCE_OPTIONS: { label: string; value: string; minutes: number }[] = [
+    { label: 'Every hour',     value: '1h',  minutes: 60 },
+    { label: 'Every 4 hours',  value: '4h',  minutes: 240 },
+    { label: 'Every day',      value: '1d',  minutes: 1440 },
+    { label: 'Every 2 days',   value: '2d',  minutes: 2880 },
+    { label: 'Every 3 days',   value: '3d',  minutes: 4320 },
+    { label: 'Every week',     value: '1w',  minutes: 10080 },
+    { label: 'Every month',    value: '1mo', minutes: 43200 },
+    { label: 'Every quarter',  value: '3mo', minutes: 129600 },
+    { label: 'Every 6 months', value: '6mo', minutes: 259200 },
+    { label: 'Every year',     value: '1y',  minutes: 525600 },
+  ];
   const [deleteConfirm, setDeleteConfirm] = useState<MergedChannel | null>(null);
   const [deleteInput, setDeleteInput] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -203,13 +217,13 @@ export default function DiscordChannels() {
     });
   };
 
-  const handleSchedule = async (ch: MergedChannel, cadence: '1d' | '4h') => {
+  const handleSchedule = async (ch: MergedChannel, cadence: string, intervalMinutes?: number) => {
     const key = `${ch.id}-${cadence}`;
     setActionLoading(p => ({ ...p, [ch.id]: key }));
     try {
       const existing = jobsByChannel[ch.id];
       if (existing && existing.cadencePreset === cadence) {
-        // Delete existing job
+        // Toggle off — delete existing job
         const jobId = existing._id || existing.id;
         await discordApi(`/api/jobs/${jobId}`, { method: 'DELETE' });
       } else {
@@ -218,16 +232,15 @@ export default function DiscordChannels() {
           const jobId = existing._id || existing.id;
           await discordApi(`/api/jobs/${jobId}`, { method: 'DELETE' });
         }
-        const intervalMinutes = cadence === '1d' ? 1440 : 240;
-        const label = cadence === '1d' ? 'every 1d' : 'every 4h';
+        const mins = intervalMinutes ?? CADENCE_OPTIONS.find(o => o.value === cadence)?.minutes ?? 1440;
         await discordApi('/api/jobs', {
           method: 'POST',
           body: JSON.stringify({
             channel: ch.id,
-            name: `#${ch.name} ${label}`,
+            name: `#${ch.name} every ${cadence}`,
             sincePreset: cadence,
             cadencePreset: cadence,
-            intervalMinutes,
+            intervalMinutes: mins,
             enabled: true,
           }),
         });
@@ -336,7 +349,7 @@ export default function DiscordChannels() {
   const renderBadge = (ch: MergedChannel) => {
     const job = jobsByChannel[ch.id];
     if (!job) return null;
-    const cadenceLabel = job.cadencePreset === '1d' ? 'synced daily' : job.cadencePreset === '4h' ? 'synced 4h' : 'synced';
+    const cadenceLabel = CADENCE_OPTIONS.find(o => o.value === job.cadencePreset)?.label.replace('Every ', 'every ') ?? `every ${job.cadencePreset}`;
     if (job.enabled) {
       return <span style={{ background: '#1a3a1a', color: '#4ade80', fontSize: 11, padding: '2px 6px', borderRadius: 4, marginLeft: 8 }}>✓ {cadenceLabel}</span>;
     }
@@ -348,6 +361,7 @@ export default function DiscordChannels() {
     const isLoading = !!actionLoading[ch.id];
     const active1d = job?.cadencePreset === '1d';
     const active4h = job?.cadencePreset === '4h';
+    const activeCustom = job && job.cadencePreset !== '1d' && job.cadencePreset !== '4h';
     const jobEnabled = job?.enabled ?? false;
     const btnStyle = (active: boolean): React.CSSProperties => ({
       padding: '3px 8px', fontSize: 12, borderRadius: 4, border: '1px solid',
@@ -441,6 +455,46 @@ export default function DiscordChannels() {
                 >
                   📨 View all
                 </button>
+                {/* Schedule submenu */}
+                <div style={{ borderTop: '1px solid #444', position: 'relative' }}>
+                  <button
+                    onClick={() => setScheduleMenuOpen(scheduleMenuOpen === ch.id ? null : ch.id)}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#e0e0e0', cursor: 'pointer', fontSize: 13 }}
+                    onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                    onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    <span>🕐 Schedule…</span>
+                    <span style={{ fontSize: 10, color: '#888' }}>▶</span>
+                  </button>
+                  {scheduleMenuOpen === ch.id && (
+                    <div style={{
+                      position: 'absolute', left: '100%', top: 0,
+                      background: '#2f3136', border: '1px solid #555', borderRadius: 6,
+                      zIndex: 60, minWidth: 160, boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+                    }}>
+                      {CADENCE_OPTIONS.map(opt => {
+                        const isActive = job?.cadencePreset === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            onClick={() => { setMenuOpen(null); setScheduleMenuOpen(null); handleSchedule(ch, opt.value, opt.minutes); }}
+                            style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              width: '100%', textAlign: 'left', padding: '7px 12px',
+                              background: isActive ? '#1a3a1a' : 'none', border: 'none',
+                              color: isActive ? '#4ade80' : '#e0e0e0', cursor: 'pointer', fontSize: 13,
+                            }}
+                            onMouseOver={e => { if (!isActive) e.currentTarget.style.background = '#3d4046'; }}
+                            onMouseOut={e => { if (!isActive) e.currentTarget.style.background = 'none'; }}
+                          >
+                            {opt.label}
+                            {isActive && <span style={{ fontSize: 11 }}>✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
