@@ -160,6 +160,7 @@ export default function App() {
                   {section.key === 'discord' && <DiscordLoginStatus />}
                   {section.key === 'slack' && <SlackLoginStatus />}
                   {section.key === 'chatgpt' && <ChatGPTLoginStatus />}
+                  {section.key === 'gmail' && <GmailStatus />}
                   {section.items.map(item => (
                     <NavLink key={item.to} to={item.to} className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
                       <span>{item.icon}</span>
@@ -187,8 +188,11 @@ export default function App() {
           <Route path="/discord/channels" element={<DiscordChannels />} />
           <Route path="/discord/backfill" element={<DiscordBackfill />} />
           <Route path="/discord/scheduled" element={<DiscordScheduled />} />
-          {/* Placeholder ingestors */}
-          <Route path="/gmail/dashboard" element={<IngestorPlaceholder name="Gmail Ingestor" icon="📧" serviceKey="gmail-ingestor" />} />
+          {/* Gmail Ingestor */}
+          <Route path="/gmail/dashboard" element={<GmailDashboard />} />
+          <Route path="/gmail/mailboxes" element={<GmailMailboxes />} />
+          <Route path="/gmail/mailbox/:mailbox" element={<GmailEmailList />} />
+          <Route path="/gmail/email/:uid" element={<GmailEmailView />} />
           <Route path="/slack/dashboard" element={<SlackDashboard />} />
           <Route path="/slack/channels" element={<SlackChannels />} />
           <Route path="/slack/jobs" element={<SlackJobs />} />
