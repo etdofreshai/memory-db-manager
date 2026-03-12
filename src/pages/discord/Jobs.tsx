@@ -265,6 +265,19 @@ export default function DiscordJobs() {
     }
   };
 
+  const handleForceCancel = async (job: UnifiedJob) => {
+    try {
+      await discordApi(`/api/backfill/runs/${job.id}/force-cancel`, { method: 'POST' });
+      await fetchData();
+    } catch (e: any) {
+      setError(`Force cancel failed: ${e.message}`);
+    }
+  };
+
+  const isGhostRun = (job: UnifiedJob) =>
+    job.status === 'running' && job.startedAt &&
+    Date.now() - new Date(job.startedAt).getTime() > 30 * 60 * 1000; // >30min
+
   const handlePause = async (job: UnifiedJob) => {
     try {
       await discordApi(`/api/backfill/pause`, { method: 'POST', body: JSON.stringify({ runId: job.id }) });
@@ -324,6 +337,11 @@ export default function DiscordJobs() {
                       ✕ Cancel
                     </button>
                   )}
+                  {isGhostRun(job) && (
+                    <button onClick={() => handleForceCancel(job)} style={{ background: '#450a0a', color: '#f87171', border: '1px solid #7f1d1d', borderRadius: 4, padding: '4px 8px', fontSize: 12, cursor: 'pointer', marginLeft: 4 }}>
+                      ☠ Force Cancel
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -370,10 +388,15 @@ export default function DiscordJobs() {
                     <td style={{ padding: '8px 12px', color: '#9ca3af' }}>{job.completedAt ? durationStr(job.startedAt, job.completedAt) : (job.status === 'running' ? durationStr(job.startedAt, new Date().toISOString()) : '—')}</td>
                     <td style={{ padding: '8px 12px' }}>{job.messages || '—'}</td>
                     <td style={{ padding: '8px 12px', color: job.errors ? '#ef4444' : '#6b7280' }}>{job.errors || '—'}</td>
-                    <td style={{ padding: '8px 12px' }}>
+                    <td style={{ padding: '8px 12px', display: 'flex', gap: 4 }}>
                       {job.canCancel && (
                         <button onClick={() => handleCancel(job)} style={{ background: '#7f1d1d', color: '#fca5a5', border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}>
                           ✕ Cancel
+                        </button>
+                      )}
+                      {isGhostRun(job) && (
+                        <button onClick={() => handleForceCancel(job)} style={{ background: '#450a0a', color: '#f87171', border: '1px solid #7f1d1d', borderRadius: 4, padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}>
+                          ☠ Force
                         </button>
                       )}
                     </td>
