@@ -28,11 +28,17 @@ interface BackfillRun {
 
 interface SyncRun {
   id: string;
+  runId?: string;
   jobId: string;
+  channel?: string;
   channelId?: string;
+  channelName?: string;
   status: string;
   startedAt: string;
+  finishedAt?: string;
   completedAt?: string;
+  insertedCount?: number;
+  fetchedCount?: number;
   messagesIngested?: number;
   errors?: number;
 }
@@ -144,19 +150,21 @@ export default function DiscordJobs() {
   }, [resolveChannel]);
 
   const normalizeSyncRun = useCallback((r: SyncRun, chMap: Record<string, ChannelInfo>): UnifiedJob => {
-    const ch = resolveChannel(r.channelId, chMap);
+    const chId = r.channel || r.channelId;
+    const ch = r.channelName ? { name: r.channelName, server: chMap[chId || '']?.guildName || '' } : resolveChannel(chId, chMap);
     const isActive = ['running', 'in_progress'].includes(r.status?.toLowerCase());
+    const finished = r.finishedAt || r.completedAt;
     return {
-      id: r.id,
+      id: r.runId || r.id,
       type: 'Sync',
-      channelId: r.channelId,
+      channelId: chId,
       channelName: ch.name,
       serverName: ch.server,
       status: r.status,
       startedAt: r.startedAt,
-      completedAt: r.completedAt,
-      duration: durationStr(r.startedAt, r.completedAt),
-      messages: r.messagesIngested || 0,
+      completedAt: finished,
+      duration: durationStr(r.startedAt, finished),
+      messages: r.insertedCount || r.fetchedCount || r.messagesIngested || 0,
       errors: r.errors || 0,
       canCancel: isActive,
       canPause: false,
