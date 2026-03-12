@@ -57,6 +57,8 @@ export default function ChatGPTConversations() {
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [sortCol, setSortCol] = useState<'title' | 'messages' | 'lastUpdated' | 'lastSynced'>('lastUpdated');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [scheduleMenuOpen, setScheduleMenuOpen] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<Record<string, string>>({});
@@ -78,15 +80,19 @@ export default function ChatGPTConversations() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [convData, jobsData] = await Promise.allSettled([
+      const [convData, jobsData, statsData] = await Promise.allSettled([
         chatgptApi<Conversation[]>('/api/conversations'),
         chatgptApi<Job[]>('/api/jobs'),
+        apiFetch<{ stats: Record<string, ConversationStats> }>('/api/chatgpt/conversations/stats'),
       ]);
       if (convData.status === 'fulfilled' && Array.isArray(convData.value)) {
         setConversations(convData.value);
       }
       if (jobsData.status === 'fulfilled' && Array.isArray(jobsData.value)) {
         setJobs(jobsData.value);
+      }
+      if (statsData.status === 'fulfilled' && statsData.value?.stats) {
+        setStats(statsData.value.stats);
       }
     } catch (e: any) {
       setError(e.message);
@@ -99,11 +105,47 @@ export default function ChatGPTConversations() {
 
   const jobMap = new Map<string, Job>(jobs.map(j => [j.channel, j]));
 
-  const filtered = conversations.filter(c => {
-    if (!filter) return true;
-    const title = c.title || c.id;
-    return title.toLowerCase().includes(filter.toLowerCase());
-  });
+  const handleSort = (col: typeof sortCol) => {
+    if (sortCol === col) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortCol(col);
+      setSortDir('desc');
+    }
+  };
+
+  const sortIndicator = (col: typeof sortCol) => sortCol === col ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+
+  const filtered = conversations
+    .filter(c => {
+      if (!filter) return true;
+      const title = c.title || c.id;
+      return title.toLowerCase().includes(filter.toLowerCase());
+    })
+    .sort((a, b) => {
+      const dir = sortDir === 'asc' ? 1 : -1;
+      if (sortCol === 'title') {
+        return dir * (a.title || a.id).localeCompare(b.title || b.id);
+      }
+      if (sortCol === 'messages') {
+        const am = stats[a.id]?.messageCount ?? 0;
+        const bm = stats[b.id]?.messageCount ?? 0;
+        return dir * (am - bm);
+      }
+      if (sortCol === 'lastUpdated') {
+        const at = stats[a.id]?.lastMessageAt || a.updatedAt || '';
+        const bt = stats[b.id]?.lastMessageAt || b.updatedAt || '';
+        return dir * at.localeCompare(bt);
+      }
+      if (sortCol === 'lastSynced') {
+        const aj = jobMap.get(a.id);
+        const bj = jobMap.get(b.id);
+        const at = aj?.lastSyncedAt || '';
+        const bt = bj?.lastSyncedAt || '';
+        return dir * at.localeCompare(bt);
+      }
+      return 0;
+    });
 
   const handleSyncNow = async (conv: Conversation) => {
     setActionLoading(prev => ({ ...prev, [conv.id]: 'sync' }));
@@ -204,11 +246,11 @@ export default function ChatGPTConversations() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Title</th>
-                <th>Messages</th>
-                <th>Last Updated</th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('title')}>Title{sortIndicator('title')}</th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('messages')}>Messages{sortIndicator('messages')}</th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('lastUpdated')}>Last Updated{sortIndicator('lastUpdated')}</th>
                 <th>Scheduled</th>
-                <th>Last Synced</th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('lastSynced')}>Last Synced{sortIndicator('lastSynced')}</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -229,7 +271,7 @@ export default function ChatGPTConversations() {
                       {conv.title || conv.id}
                     </td>
                     <td>{convStats?.messageCount ?? conv.messageCount ?? '—'}</td>
-                    <td style={{ color: '#888', whiteSpace: 'nowrap' }}>{relativeTime(conv.updatedAt)}</td>
+                    <td style={{ color: '#888', whiteSpace: 'nowrap' }}>{relativeTime(convStats?.lastMessageAt || conv.updatedAt)}</td>
                     <td style={{ whiteSpace: 'nowrap', color: '#888' }}>
                       {job ? (
                         <span style={{ color: job.enabled ? '#22c55e' : '#9ca3af' }}>
