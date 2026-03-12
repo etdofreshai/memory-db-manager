@@ -158,47 +158,39 @@ export default function ConversationView() {
     }
   }, [id, loadingMore, loadedPage, totalPages]);
 
-  const handleLoadAll = useCallback(async () => {
+  const handleLoadN = useCallback(async (n: number) => {
     if (!id || loadingAll || loadedPage >= totalPages) return;
-    const remaining = totalPages - loadedPage;
-    const approxMessages = remaining * PAGE_SIZE;
-    if (total > 500) {
-      const ok = window.confirm(
-        `This conversation has ${total} messages total. Loading all at once may be slow. Continue?`
-      );
+    const pagesToLoad = Math.min(n, totalPages - loadedPage);
+    if (pagesToLoad <= 0) return;
+    const approxMessages = pagesToLoad * PAGE_SIZE;
+    if (approxMessages > 500) {
+      const ok = window.confirm(`Load ~${approxMessages} more messages? This may be slow.`);
       if (!ok) return;
     }
-
     const container = scrollRef.current;
     const prevScrollHeight = container ? container.scrollHeight : 0;
-
     setLoadingAll(true);
     try {
-      // Pages loadedPage+1 .. totalPages are the older pages
       const pages: Promise<MessagesResponse>[] = [];
-      for (let p = loadedPage + 1; p <= totalPages; p++) {
-        pages.push(
-          apiFetch<MessagesResponse>(
-            `/api/messages?source=chatgpt&recipient=${encodeURIComponent(id)}&page=${p}&limit=${PAGE_SIZE}`
-          )
-        );
+      for (let p = loadedPage + 1; p <= loadedPage + pagesToLoad; p++) {
+        pages.push(apiFetch<MessagesResponse>(
+          `/api/messages?source=chatgpt&recipient=${encodeURIComponent(id)}&page=${p}&limit=${PAGE_SIZE}`
+        ));
       }
       const results = await Promise.all(pages);
-      // results[0] = page loadedPage+1 (next-older), results[last] = totalPages (oldest)
-      // For oldest-first: reverse results array, then reverse each page
       const combined: Message[] = [];
       for (let i = results.length - 1; i >= 0; i--) {
         combined.push(...[...(results[i].messages || [])].reverse());
       }
       pendingScrollRestore.current = prevScrollHeight;
       setMessages(prev => [...combined, ...prev]);
-      setLoadedPage(totalPages);
+      setLoadedPage(prev => prev + pagesToLoad);
     } catch (e: any) {
       setError(e.message);
     } finally {
       setLoadingAll(false);
     }
-  }, [id, loadingAll, loadedPage, totalPages, total]);
+  }, [id, loadingAll, loadedPage, totalPages]);
 
   // Scroll detection for floating button
   const handleScroll = useCallback(() => {
@@ -352,27 +344,41 @@ export default function ConversationView() {
           onScroll={handleScroll}
           style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}
         >
-          {/* Load more / Load all at top */}
-          {canLoadMore && (
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', padding: '8px 0 4px' }}>
-              <button
-                className="btn-secondary"
-                onClick={handleLoadMore}
-                disabled={loadingMore || loadingAll}
-                style={{ padding: '5px 14px', fontSize: 13 }}
-              >
-                {loadingMore ? '⏳ Loading…' : '⬆ Load more'}
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={handleLoadAll}
-                disabled={loadingMore || loadingAll}
-                style={{ padding: '5px 14px', fontSize: 13 }}
-              >
-                {loadingAll ? '⏳ Loading all…' : `⬆⬆ Load all (${(totalPages - loadedPage) * PAGE_SIZE}+ msgs)`}
-              </button>
-            </div>
-          )}
+          {/* Load N pages buttons at top */}
+          {canLoadMore && (() => {
+            const remaining = totalPages - loadedPage;
+            const busy = loadingMore || loadingAll;
+            const opts = [
+              { label: '+1 page', n: 1 },
+              { label: '+10 pages', n: 10 },
+              { label: '+100 pages', n: 100 },
+              { label: '+500 pages', n: 500 },
+            ].filter(o => o.n <= remaining || o.n === 1);
+            return (
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap', padding: '8px 0 4px' }}>
+                {busy && <span style={{ color: '#888', fontSize: 13, alignSelf: 'center' }}>⏳ Loading…</span>}
+                {!busy && opts.map(o => (
+                  <button
+                    key={o.n}
+                    className="btn-secondary"
+                    onClick={() => o.n === 1 ? handleLoadMore() : handleLoadN(o.n)}
+                    style={{ padding: '4px 10px', fontSize: 12 }}
+                  >
+                    ⬆ {o.label}
+                  </button>
+                ))}
+                {!busy && remaining > 1 && (
+                  <button
+                    className="btn-secondary"
+                    onClick={() => handleLoadN(remaining)}
+                    style={{ padding: '4px 10px', fontSize: 12, color: '#64b5f6' }}
+                  >
+                    ⬆⬆ Load all ({remaining * PAGE_SIZE}+ msgs)
+                  </button>
+                )}
+              </div>
+            );
+          })()}
 
           {messages.map(msg => {
             const isUser = isUserMessage(msg);
