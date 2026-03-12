@@ -24,6 +24,7 @@ import GmailEmailList from './pages/gmail/EmailList';
 import GmailEmailView from './pages/gmail/EmailView';
 import GmailStatus from './pages/gmail/GmailStatus';
 import ChatGPTDashboard from './pages/chatgpt/Dashboard';
+import ChatGPTLive from './pages/chatgpt/Live';
 import ChatGPTConversations from './pages/chatgpt/Conversations';
 import ConversationView from './pages/chatgpt/ConversationView';
 import ChatGPTJobs from './pages/chatgpt/Jobs';
@@ -82,6 +83,7 @@ const sections: SidebarSection[] = [
     key: 'chatgpt', icon: '🤖', label: 'ChatGPT Ingestor', serviceKey: 'chatgpt-ingestor',
     items: [
       { to: '/chatgpt/dashboard', icon: '📊', label: 'Dashboard' },
+      { to: '/chatgpt/live', icon: '🔴', label: 'Live' },
       { to: '/chatgpt/conversations', icon: '💬', label: 'Conversations' },
       { to: '/chatgpt/jobs', icon: '📋', label: 'Jobs' },
     ],
@@ -200,6 +202,7 @@ export default function App() {
           <Route path="/anthropic/dashboard" element={<IngestorPlaceholder name="Anthropic Ingestor" icon="🤖" serviceKey="anthropic-ingestor" />} />
           {/* ChatGPT Ingestor */}
           <Route path="/chatgpt/dashboard" element={<ChatGPTDashboard />} />
+          <Route path="/chatgpt/live" element={<ChatGPTLive />} />
           <Route path="/chatgpt/conversations" element={<ChatGPTConversations />} />
           <Route path="/chatgpt/conversation/:id" element={<ConversationView />} />
           <Route path="/chatgpt/jobs" element={<ChatGPTJobs />} />
