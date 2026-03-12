@@ -114,7 +114,7 @@ export default function App() {
           🧠 Data Hub
           {import.meta.env.VITE_BUILD_DATE && (
             <div style={{ fontSize: 10, color: '#555', fontWeight: 400, marginTop: 2 }}>
-              built {import.meta.env.VITE_BUILD_DATE}
+              {import.meta.env.VITE_BUILD_DATE}{import.meta.env.VITE_BUILD_SHA ? ` (${import.meta.env.VITE_BUILD_SHA})` : ''}
             </div>
           )}
         </div>

@@ -3,7 +3,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN VITE_BUILD_DATE="$(date -u '+%Y-%m-%d %H:%M UTC')" npm run build
+RUN apk add --no-cache tzdata && \
+    VITE_BUILD_DATE="$(TZ='America/Chicago' date '+%Y-%m-%d %I:%M %p CDT')" \
+    VITE_BUILD_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" \
+    npm run build
 
 FROM node:22-alpine
 WORKDIR /app
