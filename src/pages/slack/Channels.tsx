@@ -104,13 +104,14 @@ export default function SlackChannels() {
 
   const fetchAll = useCallback(() => {
     Promise.all([
-      slackApi<SlackChannel[]>('/api/channels'),
-      apiFetch<{ channels: Record<string, ChannelStats> }>('/api/slack/channels/stats').catch(() => ({ channels: {} })),
+      slackApi<any>('/api/channels'),
       slackApi<Job[]>('/api/jobs'),
     ])
-      .then(([chList, statsData, jobsData]) => {
-        setChannelList(Array.isArray(chList) ? chList : []);
-        setStats(statsData?.channels || {});
+      .then(([chData, jobsData]) => {
+        // API returns { channels: [...] } or directly [...]
+        const chList: SlackChannel[] = Array.isArray(chData) ? chData : (chData?.channels || []);
+        setChannelList(chList);
+        setStats({});
         setJobs(Array.isArray(jobsData) ? jobsData : []);
       })
       .catch(e => setError(e.message))
@@ -126,15 +127,13 @@ export default function SlackChannels() {
   }, [jobs]);
 
   const merged: MergedChannel[] = useMemo(() => {
-    const ids = new Set([...channelList.map(c => c.id), ...Object.keys(stats)]);
-    const nameMap = Object.fromEntries(channelList.map(c => [c.id, c.name]));
-    return Array.from(ids).map(id => ({
-      id,
-      name: nameMap[id] || id,
-      lastMessageAt: stats[id]?.lastMessageAt || null,
-      messageCount: stats[id]?.messageCount || 0,
+    return channelList.map(c => ({
+      id: c.id,
+      name: c.name || c.id,
+      lastMessageAt: null,
+      messageCount: 0,
     }));
-  }, [channelList, stats]);
+  }, [channelList]);
 
   const filtered = useMemo(() => {
     if (!filter) return merged;
