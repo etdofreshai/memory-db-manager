@@ -54,9 +54,10 @@ export default function ConversationView() {
     setLoading(true);
     try {
       const data = await apiFetch<MessagesResponse>(
-        `/api/messages?source=chatgpt&recipient=${encodeURIComponent(id)}&page=${p}&limit=${PAGE_SIZE}&sort=asc`
+        `/api/messages?source=chatgpt&recipient=${encodeURIComponent(id)}&page=${p}&limit=${PAGE_SIZE}`
       );
-      setMessages(data.messages || []);
+      // API returns newest-first; reverse so oldest renders at top, newest at bottom
+      setMessages([...(data.messages || [])].reverse());
       setTotalPages(data.totalPages || 1);
       setTotal(data.total || 0);
       if (scrollToBottom) {
@@ -69,28 +70,20 @@ export default function ConversationView() {
     }
   }, [id]);
 
-  // On first load: jump to last page so most recent messages show, then scroll to bottom
+  // On first load: page 1 = newest messages (API is always desc). Reverse for display.
   useEffect(() => {
     const init = async () => {
       if (!id) return;
       setLoading(true);
       try {
-        const first = await apiFetch<MessagesResponse>(
-          `/api/messages?source=chatgpt&recipient=${encodeURIComponent(id)}&page=1&limit=${PAGE_SIZE}&sort=asc`
+        const data = await apiFetch<MessagesResponse>(
+          `/api/messages?source=chatgpt&recipient=${encodeURIComponent(id)}&page=1&limit=${PAGE_SIZE}`
         );
-        const lastPage = first.totalPages || 1;
-        setTotalPages(lastPage);
-        setTotal(first.total || 0);
-        if (lastPage > 1) {
-          const last = await apiFetch<MessagesResponse>(
-            `/api/messages?source=chatgpt&recipient=${encodeURIComponent(id)}&page=${lastPage}&limit=${PAGE_SIZE}&sort=asc`
-          );
-          setMessages(last.messages || []);
-          setPage(lastPage);
-        } else {
-          setMessages(first.messages || []);
-          setPage(1);
-        }
+        setTotalPages(data.totalPages || 1);
+        setTotal(data.total || 0);
+        // Reverse so oldest is at top, newest at bottom
+        setMessages([...(data.messages || [])].reverse());
+        setPage(1);
         setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'instant' }), 50);
       } catch (e: any) {
         setError(e.message);
@@ -101,11 +94,11 @@ export default function ConversationView() {
     init();
   }, [id]);
 
-  // Page changes after initial load
+  // Page changes — page 1 = newest, last page = oldest
   const handlePageChange = useCallback((p: number) => {
     setPage(p);
-    fetchMessages(p, p === totalPages);
-  }, [fetchMessages, totalPages]);
+    fetchMessages(p, p === 1); // scroll to bottom when on newest page
+  }, [fetchMessages]);
 
   // Try to get conversation title
   useEffect(() => {
@@ -186,33 +179,33 @@ export default function ConversationView() {
         <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
           <button
             className="btn-secondary"
-            disabled={page === 1}
-            onClick={() => handlePageChange(1)}
+            disabled={page === totalPages}
+            onClick={() => handlePageChange(totalPages)}
             style={{ padding: '4px 12px', fontSize: 12 }}
           >
             ⟨⟨ Oldest
           </button>
           <button
             className="btn-secondary"
-            disabled={page === 1}
-            onClick={() => handlePageChange(Math.max(1, page - 1))}
-            style={{ padding: '4px 12px' }}
-          >
-            ← Prev
-          </button>
-          <span style={{ color: '#888', fontSize: 13 }}>Page {page} of {totalPages}</span>
-          <button
-            className="btn-secondary"
             disabled={page === totalPages}
             onClick={() => handlePageChange(Math.min(totalPages, page + 1))}
             style={{ padding: '4px 12px' }}
           >
-            Next →
+            ← Older
+          </button>
+          <span style={{ color: '#888', fontSize: 13 }}>Page {page} of {totalPages}</span>
+          <button
+            className="btn-secondary"
+            disabled={page === 1}
+            onClick={() => handlePageChange(Math.max(1, page - 1))}
+            style={{ padding: '4px 12px' }}
+          >
+            Newer →
           </button>
           <button
             className="btn-secondary"
-            disabled={page === totalPages}
-            onClick={() => handlePageChange(totalPages)}
+            disabled={page === 1}
+            onClick={() => handlePageChange(1)}
             style={{ padding: '4px 12px', fontSize: 12 }}
           >
             Newest ⟩⟩
