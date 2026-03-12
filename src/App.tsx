@@ -60,11 +60,19 @@ const sections: SidebarSection[] = [
   },
   {
     key: 'gmail', icon: '📧', label: 'Gmail Ingestor', serviceKey: 'gmail-ingestor',
-    items: [{ to: '/gmail/dashboard', icon: '📊', label: 'Dashboard' }],
+    items: [
+      { to: '/gmail/dashboard', icon: '📊', label: 'Dashboard' },
+      { to: '/gmail/mailboxes', icon: '📬', label: 'Mailboxes' },
+    ],
   },
   {
     key: 'slack', icon: '💬', label: 'Slack Ingestor', serviceKey: 'slack-ingestor',
-    items: [{ to: '/slack/dashboard', icon: '📊', label: 'Dashboard' }],
+    items: [
+      { to: '/slack/dashboard', icon: '📊', label: 'Dashboard' },
+      { to: '/slack/channels', icon: '📺', label: 'Channels' },
+      { to: '/slack/jobs', icon: '📋', label: 'Jobs' },
+      { to: '/slack/backfill', icon: '⏪', label: 'Backfill' },
+    ],
   },
   {
     key: 'anthropic', icon: '🤖', label: 'Anthropic Ingestor', serviceKey: 'anthropic-ingestor',
@@ -150,6 +158,7 @@ export default function App() {
               {!collapsed[section.key] && (
                 <div className="section-items">
                   {section.key === 'discord' && <DiscordLoginStatus />}
+                  {section.key === 'slack' && <SlackLoginStatus />}
                   {section.key === 'chatgpt' && <ChatGPTLoginStatus />}
                   {section.items.map(item => (
                     <NavLink key={item.to} to={item.to} className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
@@ -180,7 +189,10 @@ export default function App() {
           <Route path="/discord/scheduled" element={<DiscordScheduled />} />
           {/* Placeholder ingestors */}
           <Route path="/gmail/dashboard" element={<IngestorPlaceholder name="Gmail Ingestor" icon="📧" serviceKey="gmail-ingestor" />} />
-          <Route path="/slack/dashboard" element={<IngestorPlaceholder name="Slack Ingestor" icon="💬" serviceKey="slack-ingestor" />} />
+          <Route path="/slack/dashboard" element={<SlackDashboard />} />
+          <Route path="/slack/channels" element={<SlackChannels />} />
+          <Route path="/slack/jobs" element={<SlackJobs />} />
+          <Route path="/slack/backfill" element={<SlackBackfill />} />
           <Route path="/anthropic/dashboard" element={<IngestorPlaceholder name="Anthropic Ingestor" icon="🤖" serviceKey="anthropic-ingestor" />} />
           {/* ChatGPT Ingestor */}
           <Route path="/chatgpt/dashboard" element={<ChatGPTDashboard />} />
