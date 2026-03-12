@@ -529,9 +529,13 @@ export default function DiscordBackfill() {
                         </span>
                       </td>
                       <td style={{ fontSize: 12 }}>
-                        {run.channelId
-                          ? (channels[run.channelId]?.channelName || run.channelId)
-                          : 'All channels'}
+                        {(() => {
+                          const runChannelMap: Record<string, string> = (() => { try { return JSON.parse(localStorage.getItem('backfill:runChannels') || '{}'); } catch { return {}; } })();
+                          const chId = run.channelId || runChannelMap[run.runId];
+                          if (!chId) return 'All channels';
+                          const ch = channels[chId];
+                          return ch ? ch.channelName : chId.slice(0, 10) + '…';
+                        })()}
                       </td>
                       <td style={{ fontSize: 12 }}>{run.attachmentMode === 'force' ? '⚡ Force' : '📋 Default'}</td>
                       <td>{run.stats?.totalMessages ?? '—'}</td>
