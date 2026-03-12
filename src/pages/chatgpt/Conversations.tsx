@@ -24,6 +24,8 @@ interface Job {
   intervalMinutes?: number;
   enabled?: boolean;
   lastRunAt?: string;
+  lastSyncedAt?: string;
+  startDate?: string;
 }
 
 function relativeTime(iso: string | null | undefined): string {
@@ -58,6 +60,9 @@ export default function ChatGPTConversations() {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [scheduleMenuOpen, setScheduleMenuOpen] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<Record<string, string>>({});
+  const [startDateModal, setStartDateModal] = useState<Conversation | null>(null);
+  const [startDateInput, setStartDateInput] = useState('');
+  const [startDateLoading, setStartDateLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -147,14 +152,29 @@ export default function ChatGPTConversations() {
     setMenuOpen(null);
     const existing = jobMap.get(conv.id);
     if (!existing) return;
-    if (!confirm(`Reset sync for "${conv.title || conv.id}"?`)) return;
+    if (!confirm(`Reset sync for "${conv.title || conv.id}"? Next run will re-fetch from startDate or beginning.`)) return;
+    try {
+      await chatgptApi(`/api/jobs/${existing.id}/reset-sync`, { method: 'POST' });
+    } catch (e: any) {
+      alert(`Reset failed: ${e.message}`);
+    }
+    fetchAll();
+  };
+
+  const handleSetStartDate = async (conv: Conversation, dateStr: string) => {
+    setStartDateLoading(true);
+    const existing = jobMap.get(conv.id);
+    if (!existing) { setStartDateLoading(false); return; }
     try {
       await chatgptApi(`/api/jobs/${existing.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ lastRunAt: null }),
+        body: JSON.stringify({ startDate: dateStr || null }),
       });
+      setStartDateModal(null);
     } catch (e: any) {
-      alert(`Reset failed: ${e.message}`);
+      alert(`Failed to set start date: ${e.message}`);
+    } finally {
+      setStartDateLoading(false);
     }
     fetchAll();
   };
@@ -217,7 +237,9 @@ export default function ChatGPTConversations() {
                         </span>
                       ) : '—'}
                     </td>
-                    <td style={{ color: '#888', whiteSpace: 'nowrap' }}>{relativeTime(job?.lastRunAt)}</td>
+                    <td style={{ padding: '6px 8px', whiteSpace: 'nowrap', color: job?.lastSyncedAt ? '#4ade80' : '#555' }} title={job?.lastSyncedAt || 'Never synced'}>
+                      {job ? (job.lastSyncedAt ? relativeTime(job.lastSyncedAt) : '—') : ''}
+                    </td>
                     <td onClick={e => e.stopPropagation()} style={{ position: 'relative' }}>
                       <div ref={menuOpen === conv.id ? menuRef : undefined} style={{ display: 'inline-block', position: 'relative' }}>
                         <button
@@ -277,10 +299,19 @@ export default function ChatGPTConversations() {
                             {job && (
                               <button
                                 className="menu-item"
+                                onClick={() => { setMenuOpen(null); setStartDateInput(job.startDate ? job.startDate.split('T')[0] : ''); setStartDateModal(conv); }}
+                                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px', background: 'none', border: 'none', color: '#cdd6f4', cursor: 'pointer', fontSize: 13 }}
+                              >
+                                ⚙ Set start date…
+                              </button>
+                            )}
+                            {job && (
+                              <button
+                                className="menu-item"
                                 onClick={() => handleResetSync(conv)}
                                 style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px', background: 'none', border: 'none', color: '#f88', cursor: 'pointer', fontSize: 13 }}
                               >
-                                🔁 Reset Sync
+                                ↺ Reset sync
                               </button>
                             )}
                           </div>
@@ -292,6 +323,31 @@ export default function ChatGPTConversations() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {startDateModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#1e1e2e', border: '1px solid #444', borderRadius: 8, padding: 24, minWidth: 320 }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>⚙ Set start date for "{startDateModal.title || startDateModal.id}"</h3>
+            <p style={{ color: '#888', fontSize: 13, marginBottom: 12 }}>Sync will never fetch conversations updated before this date.</p>
+            <input
+              type="date"
+              value={startDateInput}
+              onChange={e => setStartDateInput(e.target.value)}
+              style={{ width: '100%', padding: '6px 10px', borderRadius: 4, border: '1px solid #444', background: '#2a2a3e', color: '#cdd6f4', fontSize: 14, marginBottom: 12 }}
+            />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setStartDateModal(null)} style={{ padding: '6px 16px', background: '#333', border: 'none', borderRadius: 4, color: '#cdd6f4', cursor: 'pointer' }}>Cancel</button>
+              <button
+                disabled={startDateLoading}
+                onClick={() => handleSetStartDate(startDateModal, startDateInput ? `${startDateInput}T00:00:00.000Z` : '')}
+                style={{ padding: '6px 16px', background: '#1a3a6a', border: 'none', borderRadius: 4, color: '#fff', cursor: startDateLoading ? 'wait' : 'pointer' }}
+              >
+                {startDateLoading ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
