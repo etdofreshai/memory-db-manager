@@ -110,7 +110,14 @@ export default function App() {
     <div className="app-layout">
       <button className="hamburger" onClick={() => setMobileOpen(!mobileOpen)}>☰</button>
       <nav className={`sidebar ${mobileOpen ? 'open' : ''}`}>
-        <div className="sidebar-logo">🧠 Data Hub</div>
+        <div className="sidebar-logo">
+          🧠 Data Hub
+          {import.meta.env.VITE_BUILD_DATE && (
+            <div style={{ fontSize: 10, color: '#555', fontWeight: 400, marginTop: 2 }}>
+              built {import.meta.env.VITE_BUILD_DATE}
+            </div>
+          )}
+        </div>
         <div className="sidebar-nav">
           {sections.map(section => (
             <div key={section.key} className="sidebar-section">

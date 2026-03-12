@@ -3,7 +3,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build
+RUN VITE_BUILD_DATE="$(date -u '+%Y-%m-%d %H:%M UTC')" npm run build
 
 FROM node:22-alpine
 WORKDIR /app
