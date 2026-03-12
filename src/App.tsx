@@ -11,6 +11,7 @@ import DiscordBackfill from './pages/discord/Backfill';
 import DiscordScheduled from './pages/discord/Scheduled';
 import DiscordJobs from './pages/discord/Jobs';
 import IngestorPlaceholder from './pages/IngestorPlaceholder';
+import DiscordLoginStatus from './components/DiscordLoginStatus';
 import { getServiceConfig, checkHealth, ServiceConfig } from './api';
 
 interface SidebarSection {
@@ -129,6 +130,7 @@ export default function App() {
               </button>
               {!collapsed[section.key] && (
                 <div className="section-items">
+                  {section.key === 'discord' && <DiscordLoginStatus />}
                   {section.items.map(item => (
                     <NavLink key={item.to} to={item.to} className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
                       <span>{item.icon}</span>
