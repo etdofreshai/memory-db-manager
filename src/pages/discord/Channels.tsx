@@ -23,6 +23,8 @@ interface Job {
   cadencePreset?: string;
   intervalMinutes?: number;
   enabled?: boolean;
+  lastSyncedAt?: string;
+  startDate?: string;
 }
 
 interface MergedChannel {
@@ -96,6 +98,9 @@ export default function DiscordChannels() {
   const [deleteConfirm, setDeleteConfirm] = useState<MergedChannel | null>(null);
   const [deleteInput, setDeleteInput] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [startDateModal, setStartDateModal] = useState<MergedChannel | null>(null);
+  const [startDateInput, setStartDateInput] = useState('');
+  const [startDateLoading, setStartDateLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -327,6 +332,40 @@ export default function DiscordChannels() {
     }
   };
 
+  const handleResetSync = async (ch: MergedChannel) => {
+    const job = jobsByChannel[ch.id];
+    if (!job) return;
+    const jobId = job._id || job.id;
+    if (!confirm(`Reset sync for #${ch.name}? Next run will re-fetch from startDate or beginning.`)) return;
+    try {
+      await discordApi(`/api/jobs/${jobId}/reset-sync`, { method: 'POST' });
+      const freshJobs = await discordApi<Job[]>('/api/jobs');
+      setJobs(Array.isArray(freshJobs) ? freshJobs : []);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const handleSetStartDate = async (ch: MergedChannel, dateStr: string) => {
+    const job = jobsByChannel[ch.id];
+    if (!job) return;
+    const jobId = job._id || job.id;
+    setStartDateLoading(true);
+    try {
+      await discordApi(`/api/jobs/${jobId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ startDate: dateStr || null }),
+      });
+      const freshJobs = await discordApi<Job[]>('/api/jobs');
+      setJobs(Array.isArray(freshJobs) ? freshJobs : []);
+      setStartDateModal(null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setStartDateLoading(false);
+    }
+  };
+
   const handleToggleEnabled = async (ch: MergedChannel) => {
     const job = jobsByChannel[ch.id];
     if (!job) return;
@@ -381,6 +420,9 @@ export default function DiscordChannels() {
         </td>
         <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }} title={ch.lastMessageAt || ''}>
           {relativeTime(ch.lastMessageAt)}
+        </td>
+        <td style={{ padding: '6px 8px', whiteSpace: 'nowrap', color: job?.lastSyncedAt ? '#4ade80' : '#555' }} title={job?.lastSyncedAt || 'Never synced'}>
+          {job ? (job.lastSyncedAt ? relativeTime(job.lastSyncedAt) : '—') : ''}
         </td>
         <td style={{ padding: '6px 8px', textAlign: 'right' }}>{ch.messageCount.toLocaleString()}</td>
         <td style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -438,6 +480,26 @@ export default function DiscordChannels() {
                   >
                     ✕ Cancel download
                   </button>
+                )}
+                {job && (
+                  <>
+                    <button
+                      onClick={() => { setMenuOpen(null); setStartDateInput(job.startDate ? job.startDate.split('T')[0] : ''); setStartDateModal(ch); }}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#e0e0e0', cursor: 'pointer', fontSize: 13 }}
+                      onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                      onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                    >
+                      ⚙ Set start date…
+                    </button>
+                    <button
+                      onClick={() => { setMenuOpen(null); handleResetSync(ch); }}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#f59e0b', cursor: 'pointer', fontSize: 13 }}
+                      onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                      onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                    >
+                      ↺ Reset sync
+                    </button>
+                  </>
                 )}
                 <button
                   onClick={() => { setMenuOpen(null); setDeleteInput(''); setDeleteConfirm(ch); }}
@@ -522,6 +584,7 @@ export default function DiscordChannels() {
               <tr style={{ borderBottom: '1px solid #444', fontSize: 12, color: '#888' }}>
                 <th style={{ textAlign: 'left', padding: '4px 8px' }}>Channel</th>
                 <th style={{ textAlign: 'left', padding: '4px 8px' }}>Last message</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>Last synced</th>
                 <th style={{ textAlign: 'right', padding: '4px 8px' }}>Count</th>
                 <th style={{ textAlign: 'right', padding: '4px 8px' }}>Actions</th>
               </tr>
@@ -602,6 +665,31 @@ export default function DiscordChannels() {
                 style={{ padding: '6px 16px', background: deleteInput === 'DELETE' ? '#dc2626' : '#555', border: 'none', borderRadius: 4, color: '#fff', cursor: deleteInput === 'DELETE' && !deleteLoading ? 'pointer' : 'not-allowed', opacity: deleteInput === 'DELETE' ? 1 : 0.5 }}
               >
                 {deleteLoading ? 'Deleting…' : 'Delete All'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {startDateModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setStartDateModal(null)}>
+          <div style={{ background: '#2f3136', border: '1px solid #555', borderRadius: 8, padding: 24, minWidth: 320, maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>⚙ Set start date for #{startDateModal.name}</h3>
+            <p style={{ color: '#aaa', fontSize: 13, margin: '0 0 16px' }}>Messages before this date will never be fetched. Leave empty to fetch from the beginning.</p>
+            <input
+              type="date"
+              value={startDateInput}
+              onChange={e => setStartDateInput(e.target.value)}
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 4, border: '1px solid #555', background: '#1e1e1e', color: '#e0e0e0', fontSize: 14, boxSizing: 'border-box' }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+              <button onClick={() => setStartDateModal(null)} style={{ padding: '6px 16px', background: 'none', border: '1px solid #555', borderRadius: 4, color: '#aaa', cursor: 'pointer' }}>Cancel</button>
+              <button
+                disabled={startDateLoading}
+                onClick={() => handleSetStartDate(startDateModal, startDateInput ? `${startDateInput}T00:00:00.000Z` : '')}
+                style={{ padding: '6px 16px', background: '#1a3a6a', border: 'none', borderRadius: 4, color: '#fff', cursor: startDateLoading ? 'wait' : 'pointer' }}
+              >
+                {startDateLoading ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>
