@@ -1,106 +1,124 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { slackApi } from '../../api';
+
+interface BackfillRun {
+  runId: string;
+  channelId?: string;
+  channelName?: string;
+  startedAt: string;
+  completedAt?: string;
+  status: string;
+  progress?: {
+    processed?: number;
+    total?: number;
+    currentChannel?: string;
+  };
+  stats?: {
+    totalMessages?: number;
+    downloadedAttachments?: number;
+    skipped?: number;
+    errors?: number;
+  };
+}
 
 interface SlackChannel {
   id: string;
   name: string;
 }
 
-interface BackfillRun {
-  runId: string;
-  startedAt: string;
-  completedAt?: string;
-  status: string;
-  channelId?: string;
-  stats?: {
-    totalMessages?: number;
-    downloadedAttachments?: number;
-    ingestedAttachments?: number;
-    skipped?: number;
-    errors?: number;
-  };
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m ago`;
 }
 
-function statusColor(status: string) {
-  switch (status) {
-    case 'complete': return { bg: '#064e3b', fg: '#6ee7b7' };
-    case 'running': return { bg: '#1e3a5f', fg: '#93c5fd' };
-    case 'error': return { bg: '#7f1d1d', fg: '#fca5a5' };
-    case 'paused': return { bg: '#78350f', fg: '#fcd34d' };
-    default: return { bg: '#333', fg: '#ccc' };
-  }
+function durationStr(start: string, end?: string): string {
+  const ms = (end ? new Date(end).getTime() : Date.now()) - new Date(start).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
 }
 
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
+function statusColor(status: string): string {
+  const s = status.toLowerCase();
+  if (s === 'running' || s === 'in_progress') return '#22c55e';
+  if (s === 'completed' || s === 'success') return '#3b82f6';
+  if (s === 'failed' || s === 'error') return '#ef4444';
+  if (s === 'paused') return '#f59e0b';
+  if (s === 'cancelled' || s === 'canceled') return '#6b7280';
+  return '#9ca3af';
 }
 
 export default function SlackBackfill() {
   const [channels, setChannels] = useState<SlackChannel[]>([]);
-  const [selectedChannel, setSelectedChannel] = useState('');
-  const [allChannels, setAllChannels] = useState(true);
   const [runs, setRuns] = useState<BackfillRun[]>([]);
-  const [expandedRun, setExpandedRun] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-  const [activeRunId, setActiveRunId] = useState<string | null>(null);
-  const [error, setError] = useState('');
+  const [activeStatus, setActiveStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selectedChannel, setSelectedChannel] = useState('');
+  const [starting, setStarting] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const runChannelMap: Record<string, string> = (() => {
-    try { return JSON.parse(localStorage.getItem('slack:runChannels') || '{}'); } catch { return {}; }
-  })();
+  const channelMap = Object.fromEntries(channels.map(c => [c.id, c.name]));
 
-  const channelName = (chId?: string) => {
-    if (!chId) return 'All channels';
-    const rCh = runChannelMap[chId];
-    const lookupId = rCh || chId;
-    const ch = channels.find(c => c.id === lookupId);
-    return ch ? `#${ch.name}` : lookupId.slice(0, 10) + '…';
-  };
-
-  const loadRuns = useCallback(() => {
-    slackApi<any>('/api/backfill/runs')
-      .then(data => {
+  const fetchData = useCallback(async () => {
+    try {
+      const [runsRes, statusRes] = await Promise.allSettled([
+        slackApi<any>('/api/backfill/runs?limit=30'),
+        slackApi<any>('/api/backfill/status'),
+      ]);
+      if (runsRes.status === 'fulfilled') {
+        const data = runsRes.value;
         setRuns(Array.isArray(data) ? data : data?.runs || []);
-      })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
+      }
+      if (statusRes.status === 'fulfilled') {
+        setActiveStatus(statusRes.value);
+      }
+      setError('');
+    } catch (e: any) {
+      setError(e.message);
+    }
   }, []);
 
   useEffect(() => {
-    slackApi<SlackChannel[]>('/api/channels')
-      .then(data => { if (Array.isArray(data)) setChannels(data); })
-      .catch(() => {});
-    loadRuns();
-    const interval = setInterval(loadRuns, 15000);
-    return () => clearInterval(interval);
-  }, [loadRuns]);
+    (async () => {
+      setLoading(true);
+      try {
+        const chData = await slackApi<SlackChannel[]>('/api/channels');
+        setChannels(Array.isArray(chData) ? chData : []);
+        await fetchData();
+      } catch (e: any) {
+        setError(e.message);
+      }
+      setLoading(false);
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const startBackfill = async () => {
-    setError('');
+  // Auto-refresh when active
+  useEffect(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (activeStatus?.status === 'running' || activeStatus?.status === 'paused') {
+      timerRef.current = setInterval(fetchData, 5000);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [activeStatus?.status, fetchData]);
+
+  const handleStart = async () => {
+    if (!selectedChannel) return;
     setStarting(true);
     try {
-      const body: any = {};
-      if (!allChannels && selectedChannel) body.channelId = selectedChannel;
-      const data = await slackApi<any>('/api/backfill/start', {
+      await slackApi('/api/backfill/start', {
         method: 'POST',
-        body: JSON.stringify(body),
+        body: JSON.stringify({ channelId: selectedChannel }),
       });
-      if (data?.runId) {
-        setActiveRunId(data.runId);
-        if (!allChannels && selectedChannel) {
-          try {
-            const m = JSON.parse(localStorage.getItem('slack:runChannels') || '{}');
-            m[data.runId] = selectedChannel;
-            localStorage.setItem('slack:runChannels', JSON.stringify(m));
-          } catch {}
-        }
-      }
-      loadRuns();
+      await fetchData();
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -108,146 +126,157 @@ export default function SlackBackfill() {
     }
   };
 
-  const cancelRun = async (runId: string) => {
+  const handlePause = async () => {
+    if (!activeStatus?.runId) return;
     try {
       await slackApi('/api/backfill/pause', {
         method: 'POST',
-        body: JSON.stringify({ runId }),
+        body: JSON.stringify({ runId: activeStatus.runId }),
       });
-      if (activeRunId === runId) setActiveRunId(null);
-      loadRuns();
+      await fetchData();
     } catch (e: any) {
       setError(e.message);
     }
   };
 
-  const activeRuns = runs.filter(r => r.status === 'running' || r.status === 'paused');
+  const handleResume = async () => {
+    if (!activeStatus?.runId) return;
+    try {
+      await slackApi('/api/backfill/resume', {
+        method: 'POST',
+        body: JSON.stringify({ runId: activeStatus.runId }),
+      });
+      await fetchData();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  if (loading) return <p style={{ padding: 24, color: '#9ca3af' }}>Loading backfill…</p>;
+
+  const isRunning = activeStatus?.status === 'running';
+  const isPaused = activeStatus?.status === 'paused';
+  const isActive = isRunning || isPaused;
 
   return (
-    <div>
-      <h1 className="page-title">⏪ Slack Backfill</h1>
-      {error && <div className="error-box">{error}</div>}
+    <div style={{ padding: 24, maxWidth: 900 }}>
+      <h1 style={{ margin: '0 0 8px', fontSize: 24 }}>⏪ Slack Backfill</h1>
+      <p style={{ color: '#9ca3af', margin: '0 0 24px', fontSize: 14 }}>
+        Download historical Slack messages for a channel.
+      </p>
 
-      {/* Start form */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <h3 style={{ margin: '0 0 16px' }}>Start Backfill</h3>
+      {error && (
+        <div style={{ background: '#7f1d1d', border: '1px solid #ef4444', borderRadius: 8, padding: '8px 12px', marginBottom: 16, color: '#fca5a5', fontSize: 13 }}>
+          {error}
+        </div>
+      )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: '#aaa' }}>Channel</label>
+      {/* Active Status */}
+      {isActive && activeStatus && (
+        <div style={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8, padding: 16, marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: isRunning ? '#22c55e' : '#f59e0b', animation: isRunning ? 'pulse 2s infinite' : 'none' }} />
+            <strong style={{ fontSize: 16 }}>Backfill {activeStatus.status}</strong>
+            {activeStatus.startedAt && (
+              <span style={{ color: '#9ca3af', fontSize: 13 }}>{relativeTime(activeStatus.startedAt)}</span>
+            )}
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+              {isRunning && (
+                <button onClick={handlePause} style={{ background: '#78350f', color: '#fbbf24', border: 'none', borderRadius: 4, padding: '6px 12px', cursor: 'pointer' }}>
+                  ⏸ Pause
+                </button>
+              )}
+              {isPaused && (
+                <button onClick={handleResume} style={{ background: '#14532d', color: '#4ade80', border: 'none', borderRadius: 4, padding: '6px 12px', cursor: 'pointer' }}>
+                  ▶ Resume
+                </button>
+              )}
+            </div>
+          </div>
+          {activeStatus.progress && (
+            <div style={{ marginTop: 10, fontSize: 13, color: '#9ca3af' }}>
+              {activeStatus.progress.processed != null && activeStatus.progress.total != null && (
+                <>
+                  <div style={{ background: '#374151', borderRadius: 4, height: 6, marginBottom: 6 }}>
+                    <div style={{ background: '#22c55e', height: 6, borderRadius: 4, width: `${Math.min(100, (activeStatus.progress.processed / activeStatus.progress.total) * 100)}%`, transition: 'width 0.5s' }} />
+                  </div>
+                  {activeStatus.progress.processed.toLocaleString()} / {activeStatus.progress.total.toLocaleString()} processed
+                </>
+              )}
+              {activeStatus.progress.currentChannel && <div>Channel: {channelMap[activeStatus.progress.currentChannel] || activeStatus.progress.currentChannel}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Start new backfill */}
+      {!isActive && (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>Start Backfill</h3>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <select
-              value={allChannels ? '__all__' : selectedChannel}
-              onChange={e => {
-                if (e.target.value === '__all__') { setAllChannels(true); setSelectedChannel(''); }
-                else { setAllChannels(false); setSelectedChannel(e.target.value); }
-              }}
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 4, border: '1px solid #333', background: '#0a1628', color: '#eee' }}
+              value={selectedChannel}
+              onChange={e => setSelectedChannel(e.target.value)}
+              style={{ flex: 1, minWidth: 200, padding: '8px 10px', background: '#1e1e1e', border: '1px solid #555', borderRadius: 4, color: '#e0e0e0' }}
             >
-              <option value="__all__">All channels</option>
-              {channels.map(ch => (
-                <option key={ch.id} value={ch.id}>#{ch.name}</option>
+              <option value="">Select a channel…</option>
+              {channels.map(c => (
+                <option key={c.id} value={c.id}>#{c.name}</option>
               ))}
             </select>
+            <button
+              onClick={handleStart}
+              disabled={!selectedChannel || starting}
+              style={{ padding: '8px 16px', background: selectedChannel ? '#1a3a6a' : '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: selectedChannel && !starting ? 'pointer' : 'not-allowed' }}
+            >
+              {starting ? 'Starting…' : '▶ Start'}
+            </button>
           </div>
         </div>
+      )}
 
-        <button
-          onClick={startBackfill}
-          disabled={starting || activeRuns.length > 0}
-          style={{
-            padding: '10px 20px', borderRadius: 6, border: 'none', fontWeight: 600,
-            cursor: starting || activeRuns.length > 0 ? 'not-allowed' : 'pointer',
-            background: starting || activeRuns.length > 0 ? '#333' : '#3b82f6', color: '#fff',
-          }}
-        >
-          {starting ? '⏳ Starting...' : '▶ Start Backfill'}
-        </button>
-        {activeRuns.length > 0 && (
-          <span style={{ marginLeft: 12, fontSize: 13, color: '#f59e0b' }}>
-            ⚠ A backfill is already running — pause it first
-          </span>
-        )}
-      </div>
-
-      {/* Run History */}
+      {/* Run history */}
       <div className="card">
-        <h3 style={{ margin: '0 0 12px' }}>Backfill History</h3>
-        {loading ? <p>Loading...</p> : runs.length === 0 ? (
+        <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>Run History</h3>
+        {runs.length === 0 ? (
           <p style={{ color: '#888' }}>No backfill runs found.</p>
         ) : (
-          <table>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
-              <tr>
-                <th>Started</th>
-                <th>Status</th>
-                <th>Channel</th>
-                <th>Messages</th>
-                <th>Downloaded</th>
-                <th>Errors</th>
-                <th>Duration</th>
-                <th></th>
+              <tr style={{ borderBottom: '1px solid #444', color: '#888' }}>
+                <th style={{ textAlign: 'left', padding: '6px 8px' }}>Channel</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px' }}>Status</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px' }}>Started</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px' }}>Duration</th>
+                <th style={{ textAlign: 'right', padding: '6px 8px' }}>Messages</th>
+                <th style={{ textAlign: 'right', padding: '6px 8px' }}>Errors</th>
               </tr>
             </thead>
             <tbody>
               {runs.map(run => {
-                const started = new Date(run.startedAt);
-                const completed = run.completedAt ? new Date(run.completedAt) : null;
-                const dur = completed ? Math.round((completed.getTime() - started.getTime()) / 1000) : null;
-                const sc = statusColor(run.status);
-                const expanded = expandedRun === run.runId;
-
+                const chName = run.channelName || (run.channelId ? (channelMap[run.channelId] ? `#${channelMap[run.channelId]}` : run.channelId) : '—');
                 return (
-                  <React.Fragment key={run.runId}>
-                    <tr onClick={() => setExpandedRun(expanded ? null : run.runId)} style={{ cursor: 'pointer' }}>
-                      <td>{started.toLocaleString()}</td>
-                      <td>
-                        <span style={{
-                          display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontWeight: 600, fontSize: 12,
-                          background: sc.bg, color: sc.fg,
-                        }}>
-                          {run.status}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: 12 }}>{channelName(run.channelId)}</td>
-                      <td>{run.stats?.totalMessages ?? '—'}</td>
-                      <td>{run.stats?.downloadedAttachments ?? '—'}</td>
-                      <td style={{ color: (run.stats?.errors ?? 0) > 0 ? '#f44336' : undefined }}>
-                        {run.stats?.errors ?? '—'}
-                      </td>
-                      <td>{dur !== null ? formatDuration(dur) : '—'}</td>
-                      <td>
-                        {(run.status === 'running' || run.status === 'paused') && (
-                          <button
-                            onClick={e => { e.stopPropagation(); cancelRun(run.runId); }}
-                            style={{ padding: '4px 10px', borderRadius: 4, border: 'none', fontWeight: 600, fontSize: 11, cursor: 'pointer', background: '#7f1d1d', color: '#fca5a5' }}
-                          >
-                            ✕ Cancel
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                    {expanded && (
-                      <tr>
-                        <td colSpan={8} style={{ background: '#0d1f3c', padding: 12, fontSize: 12 }}>
-                          <div><strong>Run ID:</strong> <code>{run.runId}</code></div>
-                          <div><strong>Started:</strong> {started.toISOString()}</div>
-                          {completed && <div><strong>Completed:</strong> {completed.toISOString()}</div>}
-                          {run.stats?.ingestedAttachments != null && (
-                            <div><strong>Ingested:</strong> {run.stats.ingestedAttachments}</div>
-                          )}
-                          {run.stats?.skipped != null && (
-                            <div><strong>Skipped:</strong> {run.stats.skipped}</div>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
+                  <tr key={run.runId} style={{ borderBottom: '1px solid #333' }}>
+                    <td style={{ padding: '6px 8px' }}>{chName}</td>
+                    <td style={{ padding: '6px 8px', color: statusColor(run.status), fontWeight: 600 }}>{run.status}</td>
+                    <td style={{ padding: '6px 8px', color: '#9ca3af' }}>{relativeTime(run.startedAt)}</td>
+                    <td style={{ padding: '6px 8px', color: '#9ca3af' }}>{durationStr(run.startedAt, run.completedAt)}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{run.stats?.totalMessages?.toLocaleString() ?? '—'}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right', color: run.stats?.errors ? '#ef4444' : '#6b7280' }}>{run.stats?.errors ?? '—'}</td>
+                  </tr>
                 );
               })}
             </tbody>
           </table>
         )}
       </div>
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   );
 }
