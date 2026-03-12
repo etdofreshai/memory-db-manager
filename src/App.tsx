@@ -12,6 +12,21 @@ import DiscordScheduled from './pages/discord/Scheduled';
 import DiscordJobs from './pages/discord/Jobs';
 import IngestorPlaceholder from './pages/IngestorPlaceholder';
 import DiscordLoginStatus from './components/DiscordLoginStatus';
+import SlackLoginStatus from './components/SlackLoginStatus';
+import SlackDashboard from './pages/slack/Dashboard';
+import SlackChannels from './pages/slack/Channels';
+import SlackJobs from './pages/slack/Jobs';
+import SlackBackfill from './pages/slack/Backfill';
+import ChatGPTLoginStatus from './components/ChatGPTLoginStatus';
+import GmailDashboard from './pages/gmail/Dashboard';
+import GmailMailboxes from './pages/gmail/Mailboxes';
+import GmailEmailList from './pages/gmail/EmailList';
+import GmailEmailView from './pages/gmail/EmailView';
+import GmailStatus from './pages/gmail/GmailStatus';
+import ChatGPTDashboard from './pages/chatgpt/Dashboard';
+import ChatGPTConversations from './pages/chatgpt/Conversations';
+import ConversationView from './pages/chatgpt/ConversationView';
+import ChatGPTJobs from './pages/chatgpt/Jobs';
 import { getServiceConfig, checkHealth, ServiceConfig } from './api';
 
 interface SidebarSection {
@@ -57,7 +72,11 @@ const sections: SidebarSection[] = [
   },
   {
     key: 'chatgpt', icon: '🤖', label: 'ChatGPT Ingestor', serviceKey: 'chatgpt-ingestor',
-    items: [{ to: '/chatgpt/dashboard', icon: '📊', label: 'Dashboard' }],
+    items: [
+      { to: '/chatgpt/dashboard', icon: '📊', label: 'Dashboard' },
+      { to: '/chatgpt/conversations', icon: '💬', label: 'Conversations' },
+      { to: '/chatgpt/jobs', icon: '📋', label: 'Jobs' },
+    ],
   },
 ];
 
@@ -131,6 +150,7 @@ export default function App() {
               {!collapsed[section.key] && (
                 <div className="section-items">
                   {section.key === 'discord' && <DiscordLoginStatus />}
+                  {section.key === 'chatgpt' && <ChatGPTLoginStatus />}
                   {section.items.map(item => (
                     <NavLink key={item.to} to={item.to} className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
                       <span>{item.icon}</span>
@@ -162,7 +182,11 @@ export default function App() {
           <Route path="/gmail/dashboard" element={<IngestorPlaceholder name="Gmail Ingestor" icon="📧" serviceKey="gmail-ingestor" />} />
           <Route path="/slack/dashboard" element={<IngestorPlaceholder name="Slack Ingestor" icon="💬" serviceKey="slack-ingestor" />} />
           <Route path="/anthropic/dashboard" element={<IngestorPlaceholder name="Anthropic Ingestor" icon="🤖" serviceKey="anthropic-ingestor" />} />
-          <Route path="/chatgpt/dashboard" element={<IngestorPlaceholder name="ChatGPT Ingestor" icon="🤖" serviceKey="chatgpt-ingestor" />} />
+          {/* ChatGPT Ingestor */}
+          <Route path="/chatgpt/dashboard" element={<ChatGPTDashboard />} />
+          <Route path="/chatgpt/conversations" element={<ChatGPTConversations />} />
+          <Route path="/chatgpt/conversation/:id" element={<ConversationView />} />
+          <Route path="/chatgpt/jobs" element={<ChatGPTJobs />} />
           {/* Default */}
           <Route path="*" element={<Navigate to="/memory/messages" replace />} />
         </Routes>

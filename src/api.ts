@@ -27,6 +27,10 @@ export function slackApi<T = any>(path: string, init?: RequestInit): Promise<T> 
   return apiFetch<T>(`/proxy/slack-ingestor${path}`, init);
 }
 
+export function chatgptApi<T = any>(path: string, init?: RequestInit): Promise<T> {
+  return apiFetch<T>(`/proxy/chatgpt-ingestor${path}`, init);
+}
+
 export interface ServiceConfig {
   [name: string]: { configured: boolean };
 }
