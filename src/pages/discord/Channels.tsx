@@ -283,6 +283,8 @@ export default function DiscordChannels() {
         pollBackfillStatus(ch.id, body.runId);
       } else if (raw.ok && body?.runId) {
         setBackfillRunning(p => ({ ...p, [ch.id]: body.runId }));
+        // Save runId→channelId mapping for Jobs page cross-reference
+        try { const m = JSON.parse(localStorage.getItem('backfill:runChannels') || '{}'); m[body.runId] = ch.id; localStorage.setItem('backfill:runChannels', JSON.stringify(m)); } catch {}
         pollBackfillStatus(ch.id, body.runId);
       }
     } catch (e: any) {

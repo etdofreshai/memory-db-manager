@@ -127,14 +127,17 @@ export default function DiscordJobs() {
     return ch ? { name: ch.channelName, server: ch.guildName || '' } : { name: channelId.slice(0, 8) + '…', server: '' };
   }, []);
 
+  const runChannelMap: Record<string, string> = (() => { try { return JSON.parse(localStorage.getItem('backfill:runChannels') || '{}'); } catch { return {}; } })();
+
   const normalizeBackfill = useCallback((r: BackfillRun, chMap: Record<string, ChannelInfo>): UnifiedJob => {
-    const ch = resolveChannel(r.channelId, chMap);
+    const chId = r.channelId || runChannelMap[r.runId];
+    const ch = resolveChannel(chId, chMap);
     const isActive = ['running', 'paused'].includes(r.status?.toLowerCase());
     const msgs = r.stats?.totalMessages || r.stats?.downloadedAttachments || 0;
     return {
       id: r.runId,
       type: 'Backfill',
-      channelId: r.channelId,
+      channelId: chId,
       channelName: ch.name,
       serverName: ch.server,
       status: r.status,
