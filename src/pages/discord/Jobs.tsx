@@ -283,8 +283,7 @@ export default function DiscordJobs() {
   };
 
   const isGhostRun = (job: UnifiedJob) =>
-    job.status === 'running' && job.startedAt &&
-    Date.now() - new Date(job.startedAt).getTime() > 30 * 60 * 1000; // >30min
+    job.type === 'Backfill' && job.status === 'running';
 
   const handlePause = async (job: UnifiedJob) => {
     try {
