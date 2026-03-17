@@ -33,6 +33,10 @@ const services = {
     url: (process.env.CHATGPT_INGESTOR_URL || '').replace(/\/$/, ''),
     token: process.env.CHATGPT_INGESTOR_TOKEN || '',
   },
+  'openclaw-ingestor': {
+    url: (process.env.OPENCLAW_INGESTOR_URL || '').replace(/\/$/, ''),
+    token: process.env.OPENCLAW_INGESTOR_TOKEN || '',
+  },
 };
 
 const app = express();

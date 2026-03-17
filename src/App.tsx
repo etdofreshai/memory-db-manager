@@ -28,6 +28,7 @@ import ChatGPTLive from './pages/chatgpt/Live';
 import ChatGPTConversations from './pages/chatgpt/Conversations';
 import ConversationView from './pages/chatgpt/ConversationView';
 import ChatGPTJobs from './pages/chatgpt/Jobs';
+import OpenClawDashboard from './pages/openclaw/Dashboard';
 import { getServiceConfig, checkHealth, ServiceConfig } from './api';
 
 interface SidebarSection {
@@ -86,6 +87,12 @@ const sections: SidebarSection[] = [
       { to: '/chatgpt/live', icon: '🔴', label: 'Live' },
       { to: '/chatgpt/conversations', icon: '💬', label: 'Conversations' },
       { to: '/chatgpt/jobs', icon: '📋', label: 'Jobs' },
+    ],
+  },
+  {
+    key: 'openclaw', icon: '🐾', label: 'OpenClaw Ingestor', serviceKey: 'openclaw-ingestor',
+    items: [
+      { to: '/openclaw/dashboard', icon: '📊', label: 'Dashboard' },
     ],
   },
 ];
@@ -206,6 +213,8 @@ export default function App() {
           <Route path="/chatgpt/conversations" element={<ChatGPTConversations />} />
           <Route path="/chatgpt/conversation/:id" element={<ConversationView />} />
           <Route path="/chatgpt/jobs" element={<ChatGPTJobs />} />
+          {/* OpenClaw Ingestor */}
+          <Route path="/openclaw/dashboard" element={<OpenClawDashboard />} />
           {/* Default */}
           <Route path="*" element={<Navigate to="/memory/messages" replace />} />
         </Routes>
