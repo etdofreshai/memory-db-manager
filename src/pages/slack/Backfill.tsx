@@ -3,6 +3,8 @@ import { slackApi } from '../../api';
 import BackfillOptions, { BackfillConfig, defaultBackfillConfig } from '../../components/BackfillOptions';
 import { usePersistedFilters } from '../../hooks/usePersistedFilters';
 import ResetFiltersButton from '../../components/ResetFiltersButton';
+import ConflictModeSelector from '../../components/ConflictModeSelector';
+import { useConflictMode } from '../../hooks/useConflictMode';
 
 interface BackfillRun {
   runId: string;
@@ -85,6 +87,7 @@ export default function SlackBackfill() {
   };
   const setBackfillConfig = (cfg: BackfillConfig) => setBfFilters(cfg);
 
+  const [conflictMode, setConflictMode] = useConflictMode();
   const channelMap = Object.fromEntries(channels.map(c => [c.id, c.name]));
 
   const fetchData = useCallback(async () => {
@@ -137,6 +140,7 @@ export default function SlackBackfill() {
         channelId: selectedChannel,
         dryRun: backfillConfig.dryRun,
         downloadAttachments: backfillConfig.downloadAttachments,
+        conflictMode,
       };
       if (backfillConfig.existingMessages === 'overwrite') body.force = true;
       if (backfillConfig.existingMessages === 'append') body.appendMessages = true;
@@ -260,6 +264,15 @@ export default function SlackBackfill() {
           </div>
         </div>
       )}
+
+      {/* Conflict Mode */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <ConflictModeSelector
+          value={conflictMode}
+          onChange={setConflictMode}
+          disabled={isActive}
+        />
+      </div>
 
       {/* Shared Backfill Options */}
       <BackfillOptions

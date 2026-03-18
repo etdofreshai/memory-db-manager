@@ -3,6 +3,8 @@ import { discordApi } from '../../api';
 import { usePersistedFilters } from '../../hooks/usePersistedFilters';
 import ResetFiltersButton from '../../components/ResetFiltersButton';
 import BackfillOptions, { BackfillConfig, defaultBackfillConfig } from '../../components/BackfillOptions';
+import ConflictModeSelector from '../../components/ConflictModeSelector';
+import { useConflictMode, type ConflictMode } from '../../hooks/useConflictMode';
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -74,6 +76,9 @@ export default function DiscordBackfill() {
     existingAttachments: bfFilters.existingAttachments,
   };
   const setBackfillConfig = (cfg: BackfillConfig) => setBfFilters(cfg);
+
+  // Conflict mode (global setting)
+  const [conflictMode, setConflictMode] = useConflictMode();
 
   // Active run
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -186,6 +191,7 @@ export default function DiscordBackfill() {
         dryRun: backfillConfig.dryRun,
         downloadAttachments: backfillConfig.downloadAttachments,
         attachmentMode: backfillConfig.existingMessages === 'overwrite' ? 'force' : 'missing',
+        conflictMode,
       };
       if (backfillConfig.existingMessages === 'overwrite') body.force = true;
       if (backfillConfig.existingMessages === 'append') body.appendMessages = true;
@@ -339,6 +345,15 @@ export default function DiscordBackfill() {
             style={{ width: '100%', maxWidth: 200, padding: '8px 10px', borderRadius: 4, border: '1px solid #333', background: '#0a1628', color: '#eee' }}
           />
         </div>
+      </div>
+
+      {/* ── Conflict Mode ─────────────────────────────── */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <ConflictModeSelector
+          value={conflictMode}
+          onChange={setConflictMode}
+          disabled={isActive}
+        />
       </div>
 
       {/* ── Shared Backfill Options ────────────────────── */}

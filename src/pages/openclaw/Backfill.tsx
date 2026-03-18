@@ -3,6 +3,8 @@ import { openclawApi } from '../../api';
 import BackfillOptions, { BackfillConfig, defaultBackfillConfig } from '../../components/BackfillOptions';
 import { usePersistedFilters } from '../../hooks/usePersistedFilters';
 import ResetFiltersButton from '../../components/ResetFiltersButton';
+import ConflictModeSelector from '../../components/ConflictModeSelector';
+import { useConflictMode } from '../../hooks/useConflictMode';
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -53,6 +55,7 @@ export default function OpenClawBackfill() {
     existingAttachments: bfFilters.existingAttachments,
   };
   const setBackfillConfig = (cfg: BackfillConfig) => setBfFilters(cfg);
+  const [conflictMode, setConflictMode] = useConflictMode();
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -107,6 +110,8 @@ export default function OpenClawBackfill() {
         apiOptions.appendAttachments = true;
       }
 
+      apiOptions.conflictMode = conflictMode;
+
       const res = await openclawApi<{ ok: boolean; message: string }>('/api/backfill', {
         method: 'POST',
         body: JSON.stringify(apiOptions),
@@ -159,6 +164,15 @@ export default function OpenClawBackfill() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Conflict Mode */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <ConflictModeSelector
+          value={conflictMode}
+          onChange={setConflictMode}
+          disabled={isRunning}
+        />
       </div>
 
       {/* Shared Backfill Options */}
