@@ -212,6 +212,40 @@ export default function SlackScheduled() {
 
   const allEnabled = jobs.length > 0 && jobs.every(j => j.enabled);
 
+  // Batch selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchWorking, setBatchWorking] = useState(false);
+
+  const allSelected = jobs.length > 0 && jobs.every(j => selectedIds.has(j.id));
+  const someSelected = selectedIds.size > 0;
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (allSelected) setSelectedIds(new Set());
+    else setSelectedIds(new Set(jobs.map(j => j.id)));
+  };
+
+  const batchBackfill = async (conflictMode: string) => {
+    setBatchWorking(true);
+    const ids = Array.from(selectedIds);
+    // Fire all requests without waiting (ingestor queues them)
+    ids.forEach(id => {
+      slackApi(`/api/jobs/${id}/run-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conflict_mode: conflictMode }),
+      }).catch(() => {});
+    });
+    setTimeout(() => { refreshJobs(); setBatchWorking(false); }, 1500);
+  };
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
@@ -229,18 +263,52 @@ export default function SlackScheduled() {
         </div>
       )}
 
+      {someSelected && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '10px 14px', background: '#1e2430', border: '1px solid #3d5a80', borderRadius: 8 }}>
+          <span style={{ color: '#a0c4ff', fontSize: 13, fontWeight: 600 }}>{selectedIds.size} job{selectedIds.size === 1 ? '' : 's'} selected</span>
+          <button
+            onClick={() => batchBackfill('skip_or_append')}
+            disabled={batchWorking}
+            style={{ padding: '5px 12px', background: '#1a3a5c', border: '1px solid #60a5fa', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', fontSize: 12 }}
+          >
+            ⏪ Backfill Selected (skip)
+          </button>
+          <button
+            onClick={() => batchBackfill('skip_or_overwrite')}
+            disabled={batchWorking}
+            style={{ padding: '5px 12px', background: '#3a2a00', border: '1px solid #fbbf24', borderRadius: 6, color: '#fbbf24', cursor: 'pointer', fontSize: 12 }}
+          >
+            ⏪ Backfill Selected (overwrite)
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            style={{ padding: '5px 10px', background: 'none', border: '1px solid #555', borderRadius: 6, color: '#aaa', cursor: 'pointer', fontSize: 12, marginLeft: 'auto' }}
+          >
+            ✕ Clear
+          </button>
+        </div>
+      )}
+
       {loading ? <p>Loading...</p> : (
         <div className="card">
           {jobs.length === 0 ? <p style={{ color: '#888' }}>No scheduled jobs found.</p> : (
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 30, textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      title="Select all"
+                    />
+                  </th>
                   <th style={{ width: 40, textAlign: 'center' }}>
                     <input
                       type="checkbox"
                       checked={allEnabled}
                       onChange={(e) => toggleAllEnabled(e.target.checked)}
-                      title="Toggle all"
+                      title="Toggle all enabled"
                     />
                   </th>
                   <th>Channel</th>
@@ -254,7 +322,14 @@ export default function SlackScheduled() {
                 {jobs.map(job => {
                   const channelId = job.channel || job.channelId;
                   return (
-                    <tr key={job.id} style={{ opacity: job.enabled === false ? 0.5 : 1 }}>
+                    <tr key={job.id} style={{ opacity: job.enabled === false ? 0.5 : 1, background: selectedIds.has(job.id) ? '#1e2a3a' : undefined }}>
+                      <td style={{ textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(job.id)}
+                          onChange={() => toggleSelect(job.id)}
+                        />
+                      </td>
                       <td style={{ textAlign: 'center' }}>
                         <input
                           type="checkbox"
