@@ -58,8 +58,28 @@ function truncate(s: string, max = 200): string {
   return s.slice(0, max) + '…';
 }
 
+function sessionDisplayName(key: string): string {
+  if (!key || key === 'agent:main:main') return 'Heartbeat';
+
+  const parts = key.replace(/^agent:main:/, '').split(':');
+  const channel = parts[0];
+
+  if (channel === 'telegram') {
+    if (parts[1] === 'group') return `Telegram Group ${parts[2] || ''}`;
+    return `Telegram DM ${parts[1] || ''}`;
+  }
+  if (channel === 'discord') {
+    const channelId = parts[parts.length - 1];
+    return `Discord ${channelId}`;
+  }
+  if (channel === 'subagent') return `Subagent ${parts.slice(1).join(':').slice(0, 16)}`;
+  if (channel === 'main') return 'Main Session';
+
+  return `${channel.charAt(0).toUpperCase() + channel.slice(1)} ${parts.slice(1).join(':')}`.trim();
+}
+
 function getDisplayName(s: SessionInfo): string {
-  return s.displayName || s.label || s.key;
+  return s.displayName || s.label || sessionDisplayName(s.key);
 }
 
 function getUpdatedMs(s: SessionInfo): number {
@@ -155,7 +175,7 @@ export default function OpenClawLiveSessions() {
     <div>
       <h1 className="page-title">🔴 Live Sessions</h1>
       <p style={{ color: '#888', fontSize: 13, margin: '-8px 0 16px' }}>
-        Sessions currently active in the OpenClaw Gateway. Only sessions loaded in memory are shown.
+        Sessions processed by the OpenClaw Ingestor. Includes all sessions from last sync.
       </p>
       {error && <div className="error-box">{error}</div>}
 
@@ -187,16 +207,15 @@ export default function OpenClawLiveSessions() {
         <p style={{ color: '#888' }}>
           {filter
             ? 'No sessions match your filter.'
-            : 'No sessions currently active in gateway memory.'}
+            : 'No sessions found. Run a sync or backfill to populate.'}
         </p>
       ) : (
         <div className="card">
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #444', fontSize: 12, color: '#888' }}>
-                <th style={{ textAlign: 'left', padding: '6px 8px' }}>Name</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px' }}>Session</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px' }}>Kind</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px' }}>Key</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px' }}>Last Updated</th>
               </tr>
             </thead>
@@ -215,7 +234,8 @@ export default function OpenClawLiveSessions() {
                       }}
                     >
                       <td style={{ padding: '8px' }}>
-                        <strong>{getDisplayName(s)}</strong>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{getDisplayName(s)}</div>
+                        <code style={{ fontSize: 11, color: '#666' }}>{s.key}</code>
                       </td>
                       <td style={{ padding: '8px' }}>
                         <span
@@ -232,9 +252,6 @@ export default function OpenClawLiveSessions() {
                           {s.kind || 'unknown'}
                         </span>
                       </td>
-                      <td style={{ padding: '8px' }}>
-                        <code style={{ fontSize: 11, color: '#888' }}>{s.key}</code>
-                      </td>
                       <td
                         style={{ padding: '8px', whiteSpace: 'nowrap' }}
                         title={
@@ -248,7 +265,7 @@ export default function OpenClawLiveSessions() {
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={4} style={{ padding: 0 }}>
+                        <td colSpan={3} style={{ padding: 0 }}>
                           <div
                             style={{
                               background: '#0a1628',

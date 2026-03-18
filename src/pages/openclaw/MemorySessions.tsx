@@ -71,6 +71,26 @@ function senderIcon(sender?: string): string {
   return '👤';
 }
 
+function sessionDisplayName(key: string): string {
+  if (!key || key === 'agent:main:main') return 'Heartbeat';
+
+  const parts = key.replace(/^agent:main:/, '').split(':');
+  const channel = parts[0];
+
+  if (channel === 'telegram') {
+    if (parts[1] === 'group') return `Telegram Group ${parts[2] || ''}`;
+    return `Telegram DM ${parts[1] || ''}`;
+  }
+  if (channel === 'discord') {
+    const channelId = parts[parts.length - 1];
+    return `Discord ${channelId}`;
+  }
+  if (channel === 'subagent') return `Subagent ${parts.slice(1).join(':').slice(0, 16)}`;
+  if (channel === 'main') return 'Main Session';
+
+  return `${channel.charAt(0).toUpperCase() + channel.slice(1)} ${parts.slice(1).join(':')}`.trim();
+}
+
 /* ── Component ─────────────────────────────────────────── */
 
 export default function OpenClawMemorySessions() {
@@ -176,7 +196,7 @@ export default function OpenClawMemorySessions() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #444', fontSize: 12, color: '#888' }}>
-                <th style={{ textAlign: 'left', padding: '6px 8px' }}>Session Key</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px' }}>Session</th>
                 <th style={{ textAlign: 'right', padding: '6px 8px' }}>Messages</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px' }}>First Message</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px' }}>Last Message</th>
@@ -198,7 +218,8 @@ export default function OpenClawMemorySessions() {
                       }}
                     >
                       <td style={{ padding: '8px' }}>
-                        <code style={{ fontSize: 12 }}>{g.sessionKey}</code>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{sessionDisplayName(g.sessionKey)}</div>
+                        <code style={{ fontSize: 11, color: '#666' }}>{g.sessionKey}</code>
                       </td>
                       <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>
                         {g.messages.length}
