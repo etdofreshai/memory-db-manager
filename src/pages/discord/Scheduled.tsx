@@ -169,6 +169,20 @@ export default function DiscordScheduled() {
     }
   };
 
+  const resetLastRun = async (jobId: string) => {
+    try {
+      await discordApi(`/api/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lastRunAt: null }),
+      });
+      setMenuOpen(null);
+      await refreshJobs();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
   const toggleEnabled = async (jobId: string, enabled: boolean) => {
     try {
       await discordApi(`/api/jobs/${jobId}`, {
@@ -343,6 +357,14 @@ export default function DiscordScheduled() {
                                 background: '#2f3136', border: '1px solid #555', borderRadius: 6,
                                 zIndex: 50, minWidth: 120, boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
                               }}>
+                                <button
+                                  onClick={() => resetLastRun(job.id)}
+                                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#e0e0e0', cursor: 'pointer', fontSize: 13 }}
+                                  onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                                  onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                                >
+                                  🔄 Reset Last Run
+                                </button>
                                 <button
                                   onClick={() => openEdit(job)}
                                   style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#e0e0e0', cursor: 'pointer', fontSize: 13 }}
