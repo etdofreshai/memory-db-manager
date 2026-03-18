@@ -139,6 +139,43 @@ export default function Cleanup() {
   const hasFilters = !!(sourceId || channel || sender || dateFrom || dateTo);
   const resetFilters = () => { resetPersistedFilters(); };
 
+  // Orphaned attachments state
+  const [orphanStats, setOrphanStats] = useState<{ count: number; total_bytes: number; images: number; videos: number; audio: number; other: number } | null>(null);
+  const [orphanLoading, setOrphanLoading] = useState(false);
+  const [orphanDeleting, setOrphanDeleting] = useState(false);
+  const [showOrphanConfirm, setShowOrphanConfirm] = useState(false);
+  const [orphanConfirmText, setOrphanConfirmText] = useState('');
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
+  const checkOrphanedAttachments = async () => {
+    setOrphanLoading(true);
+    try {
+      const data = await apiFetch('/api/cleanup/orphaned-attachments');
+      setOrphanStats(data);
+    } catch (e: any) { setError(e.message); }
+    finally { setOrphanLoading(false); }
+  };
+
+  const deleteOrphanedAttachments = async () => {
+    if (orphanConfirmText !== 'DELETE') return;
+    setOrphanDeleting(true);
+    try {
+      const data = await apiFetch('/api/cleanup/orphaned-attachments', { method: 'DELETE' });
+      setToast(`✅ Deleted ${data.deleted} orphaned attachment(s)`);
+      setShowOrphanConfirm(false);
+      setOrphanConfirmText('');
+      await checkOrphanedAttachments();
+    } catch (e: any) { setError(e.message); }
+    finally { setOrphanDeleting(false); }
+  };
+
   const resolvePreviewChannel = (ch: string): string => {
     if (ch?.startsWith('discord-channel:')) return resolveDisplayName(ch);
     return ch || '—';
@@ -228,6 +265,57 @@ export default function Cleanup() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Orphaned Attachments Section */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <h3 style={{ margin: 0 }}>🗂 Orphaned Attachments</h3>
+          <button onClick={checkOrphanedAttachments} disabled={orphanLoading} style={{ background: '#1a2540', borderColor: '#2d4a7a' }}>
+            {orphanLoading ? '⏳ Checking...' : '🔍 Check'}
+          </button>
+        </div>
+
+        {orphanStats && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+              <StatCard label="Orphaned" value={orphanStats.count.toLocaleString()} color={orphanStats.count > 0 ? '#ff6b6b' : '#66bb6a'} />
+              <StatCard label="Total Size" value={formatBytes(orphanStats.total_bytes)} color="#ffa726" />
+            </div>
+            <div style={{ display: 'flex', gap: 16, fontSize: 13, color: '#aaa', flexWrap: 'wrap', marginBottom: orphanStats.count > 0 ? 16 : 0 }}>
+              <span>🖼 {orphanStats.images} images</span>
+              <span>🎬 {orphanStats.videos} videos</span>
+              <span>🎵 {orphanStats.audio} audio</span>
+              <span>📄 {orphanStats.other} other</span>
+            </div>
+
+            {orphanStats.count > 0 && !showOrphanConfirm && (
+              <button onClick={() => setShowOrphanConfirm(true)}
+                style={{ background: '#3a1b1b', borderColor: '#7d2e2e', color: '#ff6b6b' }}>
+                🗑 Delete Orphaned
+              </button>
+            )}
+
+            {showOrphanConfirm && (
+              <div style={{ borderTop: '1px solid #2a2d3e', paddingTop: 12, marginTop: 12 }}>
+                <p style={{ fontSize: 13, color: '#888', margin: '0 0 8px' }}>
+                  Type <strong>DELETE</strong> to permanently remove {orphanStats.count} orphaned attachment(s).
+                </p>
+                <input value={orphanConfirmText} onChange={e => setOrphanConfirmText(e.target.value)}
+                  placeholder="Type DELETE" autoFocus
+                  style={{ width: '100%', maxWidth: 300, marginBottom: 12, fontSize: 16, textAlign: 'center' }} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => { setShowOrphanConfirm(false); setOrphanConfirmText(''); }}>Cancel</button>
+                  <button onClick={deleteOrphanedAttachments}
+                    disabled={orphanConfirmText !== 'DELETE' || orphanDeleting}
+                    style={{ background: '#5a1a1a', borderColor: '#ff6b6b', color: orphanConfirmText === 'DELETE' ? '#ff6b6b' : '#666' }}>
+                    {orphanDeleting ? '⏳ Deleting...' : '🗑 Confirm Delete'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Action bar — only Preview button, no Delete here */}
