@@ -56,7 +56,7 @@ const sections: SidebarSection[] = [
     ],
   },
   {
-    key: 'discord', icon: '🔵', label: 'Discord Ingestor', serviceKey: 'discord-ingestor',
+    key: 'discord', icon: '👾', label: 'Discord Ingestor', serviceKey: 'discord-ingestor',
     items: [
       { to: '/discord/dashboard', icon: '📊', label: 'Dashboard' },
       { to: '/discord/jobs', icon: '📋', label: 'Jobs' },
@@ -66,14 +66,14 @@ const sections: SidebarSection[] = [
     ],
   },
   {
-    key: 'gmail', icon: '📧', label: 'Gmail Ingestor', serviceKey: 'gmail-ingestor',
+    key: 'gmail', icon: '📨', label: 'Gmail Ingestor', serviceKey: 'gmail-ingestor',
     items: [
       { to: '/gmail/dashboard', icon: '📊', label: 'Dashboard' },
       { to: '/gmail/mailboxes', icon: '📬', label: 'Mailboxes' },
     ],
   },
   {
-    key: 'slack', icon: '💬', label: 'Slack Ingestor', serviceKey: 'slack-ingestor',
+    key: 'slack', icon: '#️⃣', label: 'Slack Ingestor', serviceKey: 'slack-ingestor',
     items: [
       { to: '/slack/dashboard', icon: '📊', label: 'Dashboard' },
       { to: '/slack/channels', icon: '📺', label: 'Channels' },
@@ -82,11 +82,11 @@ const sections: SidebarSection[] = [
     ],
   },
   {
-    key: 'anthropic', icon: '🤖', label: 'Anthropic Ingestor', serviceKey: 'anthropic-ingestor',
+    key: 'anthropic', icon: '✳️', label: 'Anthropic Ingestor', serviceKey: 'anthropic-ingestor',
     items: [{ to: '/anthropic/dashboard', icon: '📊', label: 'Dashboard' }],
   },
   {
-    key: 'chatgpt', icon: '🤖', label: 'ChatGPT Ingestor', serviceKey: 'chatgpt-ingestor',
+    key: 'chatgpt', icon: '🌐', label: 'ChatGPT Ingestor', serviceKey: 'chatgpt-ingestor',
     items: [
       { to: '/chatgpt/dashboard', icon: '📊', label: 'Dashboard' },
       { to: '/chatgpt/live', icon: '🔴', label: 'Live' },
@@ -95,7 +95,7 @@ const sections: SidebarSection[] = [
     ],
   },
   {
-    key: 'openclaw', icon: '🐾', label: 'OpenClaw Ingestor', serviceKey: 'openclaw-ingestor',
+    key: 'openclaw', icon: '🦞', label: 'OpenClaw Ingestor', serviceKey: 'openclaw-ingestor',
     items: [
       { to: '/openclaw/dashboard', icon: '📊', label: 'Dashboard' },
       { to: '/openclaw/live-sessions', icon: '🔴', label: 'Live Sessions' },
@@ -215,7 +215,7 @@ export default function App() {
           <Route path="/slack/channels" element={<SlackChannels />} />
           <Route path="/slack/jobs" element={<SlackJobs />} />
           <Route path="/slack/backfill" element={<SlackBackfill />} />
-          <Route path="/anthropic/dashboard" element={<IngestorPlaceholder name="Anthropic Ingestor" icon="🤖" serviceKey="anthropic-ingestor" />} />
+          <Route path="/anthropic/dashboard" element={<IngestorPlaceholder name="Anthropic Ingestor" icon="✳️" serviceKey="anthropic-ingestor" />} />
           {/* ChatGPT Ingestor */}
           <Route path="/chatgpt/dashboard" element={<ChatGPTDashboard />} />
           <Route path="/chatgpt/live" element={<ChatGPTLive />} />
