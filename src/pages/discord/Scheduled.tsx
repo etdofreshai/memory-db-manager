@@ -160,6 +160,19 @@ export default function DiscordScheduled() {
     }
   };
 
+  const backfillJob = async (jobId: string, conflictMode?: string) => {
+    try {
+      await discordApi(`/api/jobs/${jobId}/run-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: conflictMode ? JSON.stringify({ conflict_mode: conflictMode }) : undefined,
+      });
+      setTimeout(refreshJobs, 1500);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
   const triggerJob = async (jobId: string, conflictMode?: string) => {
     try {
       await discordApi(`/api/jobs/${jobId}/run`, {
@@ -362,13 +375,22 @@ export default function DiscordScheduled() {
                                 zIndex: 50, minWidth: 160, boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
                               }}>
                                 <button
-                                  onClick={() => { setMenuOpen(null); triggerJob(job.id, 'skip_or_overwrite'); }}
+                                  onClick={() => { setMenuOpen(null); backfillJob(job.id, 'skip_or_append'); }}
+                                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#60a5fa', cursor: 'pointer', fontSize: 13 }}
+                                  onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                                  onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                                  title="Fetch ALL messages, skip existing identical ones"
+                                >
+                                  ⏪ Backfill (skip)
+                                </button>
+                                <button
+                                  onClick={() => { setMenuOpen(null); backfillJob(job.id, 'skip_or_overwrite'); }}
                                   style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#fbbf24', cursor: 'pointer', fontSize: 13 }}
                                   onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
                                   onMouseOut={e => (e.currentTarget.style.background = 'none')}
-                                  title="Run and overwrite existing messages with updated content"
+                                  title="Fetch ALL messages, overwrite existing with updated content"
                                 >
-                                  ▶ Run (overwrite)
+                                  ⏪ Backfill (overwrite)
                                 </button>
                                 <button
                                   onClick={() => resetLastRun(job.id)}
