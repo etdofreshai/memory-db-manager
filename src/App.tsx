@@ -29,7 +29,8 @@ import ChatGPTConversations from './pages/chatgpt/Conversations';
 import ConversationView from './pages/chatgpt/ConversationView';
 import ChatGPTJobs from './pages/chatgpt/Jobs';
 import OpenClawDashboard from './pages/openclaw/Dashboard';
-import OpenClawSessions from './pages/openclaw/Sessions';
+import OpenClawLiveSessions from './pages/openclaw/LiveSessions';
+import OpenClawMemorySessions from './pages/openclaw/MemorySessions';
 import OpenClawBackfill from './pages/openclaw/Backfill';
 import { getServiceConfig, checkHealth, ServiceConfig } from './api';
 
@@ -95,7 +96,8 @@ const sections: SidebarSection[] = [
     key: 'openclaw', icon: '🐾', label: 'OpenClaw Ingestor', serviceKey: 'openclaw-ingestor',
     items: [
       { to: '/openclaw/dashboard', icon: '📊', label: 'Dashboard' },
-      { to: '/openclaw/sessions', icon: '💬', label: 'Sessions' },
+      { to: '/openclaw/live-sessions', icon: '🔴', label: 'Live Sessions' },
+      { to: '/openclaw/memory-sessions', icon: '🗄️', label: 'Memory Sessions' },
       { to: '/openclaw/backfill', icon: '⏪', label: 'Backfill' },
     ],
   },
@@ -219,7 +221,8 @@ export default function App() {
           <Route path="/chatgpt/jobs" element={<ChatGPTJobs />} />
           {/* OpenClaw Ingestor */}
           <Route path="/openclaw/dashboard" element={<OpenClawDashboard />} />
-          <Route path="/openclaw/sessions" element={<OpenClawSessions />} />
+          <Route path="/openclaw/live-sessions" element={<OpenClawLiveSessions />} />
+          <Route path="/openclaw/memory-sessions" element={<OpenClawMemorySessions />} />
           <Route path="/openclaw/backfill" element={<OpenClawBackfill />} />
           {/* Default */}
           <Route path="*" element={<Navigate to="/memory/messages" replace />} />

@@ -74,9 +74,22 @@ function roleIcon(role: string): string {
   return '⚙️';
 }
 
+function kindColor(kind: string): { bg: string; fg: string } {
+  switch (kind) {
+    case 'main':
+      return { bg: '#064e3b', fg: '#6ee7b7' };
+    case 'subagent':
+      return { bg: '#1e3a5f', fg: '#93c5fd' };
+    case 'cron':
+      return { bg: '#78350f', fg: '#fcd34d' };
+    default:
+      return { bg: '#333', fg: '#ccc' };
+  }
+}
+
 /* ── Component ─────────────────────────────────────────── */
 
-export default function OpenClawSessions() {
+export default function OpenClawLiveSessions() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -117,7 +130,7 @@ export default function OpenClawSessions() {
     setMessages([]);
     try {
       const data = await openclawApi<MessageInfo[]>(
-        `/api/sessions/${encodeURIComponent(key)}/messages?limit=50`,
+        `/api/sessions/${encodeURIComponent(key)}/messages?limit=20`,
       );
       setMessages(Array.isArray(data) ? data : []);
     } catch (e: any) {
@@ -140,7 +153,10 @@ export default function OpenClawSessions() {
 
   return (
     <div>
-      <h1 className="page-title">💬 OpenClaw Sessions</h1>
+      <h1 className="page-title">🔴 Live Sessions</h1>
+      <p style={{ color: '#888', fontSize: 13, margin: '-8px 0 16px' }}>
+        Sessions currently active in the OpenClaw Gateway. Only sessions loaded in memory are shown.
+      </p>
       {error && <div className="error-box">{error}</div>}
 
       <div className="filters-bar">
@@ -169,7 +185,9 @@ export default function OpenClawSessions() {
         <p style={{ color: '#888' }}>Loading sessions...</p>
       ) : filtered.length === 0 ? (
         <p style={{ color: '#888' }}>
-          {filter ? 'No sessions match your filter.' : 'No sessions found.'}
+          {filter
+            ? 'No sessions match your filter.'
+            : 'No sessions currently active in gateway memory.'}
         </p>
       ) : (
         <div className="card">
@@ -280,9 +298,7 @@ export default function OpenClawSessions() {
                                           )}
                                         </span>
                                         <span style={{ color: '#555', fontSize: 11 }}>
-                                          {msg.timestamp
-                                            ? relativeTime(msg.timestamp)
-                                            : ''}
+                                          {msg.timestamp ? relativeTime(msg.timestamp) : ''}
                                         </span>
                                       </div>
                                       <div
@@ -313,19 +329,4 @@ export default function OpenClawSessions() {
       )}
     </div>
   );
-}
-
-/* ── Helpers ───────────────────────────────────────────── */
-
-function kindColor(kind: string): { bg: string; fg: string } {
-  switch (kind) {
-    case 'main':
-      return { bg: '#064e3b', fg: '#6ee7b7' };
-    case 'subagent':
-      return { bg: '#1e3a5f', fg: '#93c5fd' };
-    case 'cron':
-      return { bg: '#78350f', fg: '#fcd34d' };
-    default:
-      return { bg: '#333', fg: '#ccc' };
-  }
 }
