@@ -75,6 +75,16 @@ function initials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+function linkify(text: string): React.ReactNode[] {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+  return parts.map((part, i) =>
+    urlRegex.test(part)
+      ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: '#fff', textDecoration: 'underline', wordBreak: 'break-all' }}>{part}</a>
+      : part
+  );
+}
+
 function displayName(conv: Conversation): string {
   return conv.display_name || conv.conversation_id || '?';
 }
@@ -368,7 +378,7 @@ export default function IMessageConversations() {
                               whiteSpace: 'pre-wrap',
                             }}
                           >
-                            {msg.content}
+                            {linkify(msg.content!)}
                           </div>
                         )}
                       </div>
