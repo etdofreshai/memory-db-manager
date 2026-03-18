@@ -106,7 +106,11 @@ const sections: SidebarSection[] = [
 ];
 
 function loadCollapsed(): Record<string, boolean> {
-  try { return JSON.parse(localStorage.getItem('sidebar-collapsed') || '{}'); } catch { return {}; }
+  const defaults: Record<string, boolean> = Object.fromEntries(sections.map(s => [s.key, true]));
+  try {
+    const saved = JSON.parse(localStorage.getItem('sidebar-collapsed') || '{}');
+    return { ...defaults, ...saved };
+  } catch { return defaults; }
 }
 
 export default function App() {
