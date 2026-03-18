@@ -3,12 +3,22 @@ import { openclawApi } from '../../api';
 
 /* ── Types ─────────────────────────────────────────────── */
 
+interface BackfillOptions {
+  full?: boolean;
+  dryRun?: boolean;
+  overwrite?: boolean;
+  attachmentsOnly?: boolean;
+  includeAttachments?: boolean;
+}
+
 interface BackfillStatus {
   running: boolean;
   startedAt: string | null;
   processed: number;
+  skipped?: number;
   errors: number;
   completedAt: string | null;
+  options?: BackfillOptions;
 }
 
 /* ── Helpers ───────────────────────────────────────────── */
@@ -30,6 +40,55 @@ function formatISO(iso: string | null): string {
   }
 }
 
+function buildButtonLabel(options: BackfillOptions): string {
+  const parts: string[] = [];
+  if (options.dryRun) parts.push('dry run');
+  if (options.overwrite) parts.push('overwrite');
+  if (options.attachmentsOnly) parts.push('attachments only');
+  if (options.includeAttachments === false) parts.push('no attachments');
+  else if (!options.attachmentsOnly) parts.push('with attachments');
+
+  if (parts.length === 0) return '▶ Start Full Backfill';
+  return `▶ Start Backfill (${parts.join(', ')})`;
+}
+
+function buildOptionsSummary(options: BackfillOptions): string {
+  const parts: string[] = [];
+  if (options.dryRun) parts.push('🧪 Dry Run');
+  if (options.overwrite) parts.push('✏️ Overwrite');
+  if (options.attachmentsOnly) parts.push('📎 Attachments Only');
+  if (options.includeAttachments === false) parts.push('🚫 No Attachments');
+  else parts.push('📎 With Attachments');
+  if (options.full !== false) parts.push('🔄 Full Resync');
+  return parts.join('  •  ');
+}
+
+/* ── Styles ────────────────────────────────────────────── */
+
+const toggleRow: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  padding: '10px 0',
+  borderBottom: '1px solid #1e293b',
+};
+
+const toggleLabel: React.CSSProperties = {
+  flex: 1,
+};
+
+const toggleName: React.CSSProperties = {
+  fontWeight: 600,
+  color: '#e2e8f0',
+  fontSize: 14,
+};
+
+const toggleDesc: React.CSSProperties = {
+  color: '#94a3b8',
+  fontSize: 12,
+  marginTop: 2,
+};
+
 /* ── Component ─────────────────────────────────────────── */
 
 export default function OpenClawBackfill() {
@@ -38,6 +97,20 @@ export default function OpenClawBackfill() {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState('');
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Options state
+  const [dryRun, setDryRun] = useState(false);
+  const [overwrite, setOverwrite] = useState(false);
+  const [attachmentsOnly, setAttachmentsOnly] = useState(false);
+  const [includeAttachments, setIncludeAttachments] = useState(true);
+
+  const currentOptions: BackfillOptions = {
+    full: true,
+    dryRun,
+    overwrite: attachmentsOnly ? false : overwrite,
+    attachmentsOnly,
+    includeAttachments: attachmentsOnly ? true : includeAttachments,
+  };
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -77,6 +150,7 @@ export default function OpenClawBackfill() {
     try {
       const res = await openclawApi<{ ok: boolean; message: string }>('/api/backfill', {
         method: 'POST',
+        body: JSON.stringify(currentOptions),
       });
       if (!res.ok) {
         setError(res.message || 'Failed to start backfill');
@@ -130,9 +204,108 @@ export default function OpenClawBackfill() {
         </div>
       </div>
 
-      {/* Start Button */}
+      {/* Backfill Options Card */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <h3 style={{ margin: '0 0 16px' }}>Controls</h3>
+        <h3 style={{ margin: '0 0 16px' }}>⚙️ Backfill Options</h3>
+
+        <div style={toggleRow}>
+          <input
+            type="checkbox"
+            id="opt-dry-run"
+            checked={dryRun}
+            onChange={e => setDryRun(e.target.checked)}
+            style={{ width: 18, height: 18, accentColor: '#f59e0b', cursor: 'pointer' }}
+          />
+          <label htmlFor="opt-dry-run" style={toggleLabel}>
+            <div style={toggleName}>🧪 Dry Run</div>
+            <div style={toggleDesc}>
+              Preview what would be ingested without writing anything
+            </div>
+          </label>
+        </div>
+
+        <div style={{ ...toggleRow, opacity: attachmentsOnly ? 0.4 : 1 }}>
+          <input
+            type="checkbox"
+            id="opt-overwrite"
+            checked={overwrite}
+            onChange={e => setOverwrite(e.target.checked)}
+            disabled={attachmentsOnly}
+            style={{ width: 18, height: 18, accentColor: '#3b82f6', cursor: attachmentsOnly ? 'not-allowed' : 'pointer' }}
+          />
+          <label htmlFor="opt-overwrite" style={toggleLabel}>
+            <div style={toggleName}>✏️ Overwrite Existing</div>
+            <div style={toggleDesc}>
+              Update records that already exist (PUT on 409 duplicate)
+              {attachmentsOnly && <span style={{ color: '#f59e0b', marginLeft: 8 }}>— disabled in attachments-only mode</span>}
+            </div>
+          </label>
+        </div>
+
+        <div style={toggleRow}>
+          <input
+            type="checkbox"
+            id="opt-attachments-only"
+            checked={attachmentsOnly}
+            onChange={e => {
+              setAttachmentsOnly(e.target.checked);
+              if (e.target.checked) {
+                setOverwrite(false);
+                setIncludeAttachments(true);
+              }
+            }}
+            style={{ width: 18, height: 18, accentColor: '#8b5cf6', cursor: 'pointer' }}
+          />
+          <label htmlFor="opt-attachments-only" style={toggleLabel}>
+            <div style={toggleName}>📎 Attachments Only</div>
+            <div style={toggleDesc}>
+              Only process attachments, skip message text upsert (useful for adding attachments to already-ingested messages)
+            </div>
+          </label>
+        </div>
+
+        <div style={{ ...toggleRow, borderBottom: 'none', opacity: attachmentsOnly ? 0.4 : 1 }}>
+          <input
+            type="checkbox"
+            id="opt-include-attachments"
+            checked={attachmentsOnly ? true : includeAttachments}
+            onChange={e => setIncludeAttachments(e.target.checked)}
+            disabled={attachmentsOnly}
+            style={{ width: 18, height: 18, accentColor: '#10b981', cursor: attachmentsOnly ? 'not-allowed' : 'pointer' }}
+          />
+          <label htmlFor="opt-include-attachments" style={toggleLabel}>
+            <div style={toggleName}>📁 Include Attachments</div>
+            <div style={toggleDesc}>
+              Process and upload attachment blobs (disable for faster text-only ingestion)
+              {attachmentsOnly && <span style={{ color: '#8b5cf6', marginLeft: 8 }}>— always on in attachments-only mode</span>}
+            </div>
+          </label>
+        </div>
+
+        {/* Dry run notice */}
+        {dryRun && (
+          <div
+            style={{
+              marginTop: 12,
+              padding: '8px 12px',
+              borderRadius: 6,
+              background: '#422006',
+              border: '1px solid #f59e0b33',
+              color: '#fbbf24',
+              fontSize: 12,
+            }}
+          >
+            🧪 <strong>Dry run mode:</strong> No data will be written. All operations will be logged and counted only.
+          </div>
+        )}
+      </div>
+
+      {/* Controls Card */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3 style={{ margin: '0 0 12px' }}>Controls</h3>
+        <p style={{ margin: '0 0 12px', color: '#94a3b8', fontSize: 12 }}>
+          {buildOptionsSummary(currentOptions)}
+        </p>
         <button
           onClick={handleStart}
           disabled={starting || isRunning}
@@ -142,12 +315,16 @@ export default function OpenClawBackfill() {
             border: 'none',
             fontWeight: 600,
             cursor: starting || isRunning ? 'not-allowed' : 'pointer',
-            background: starting || isRunning ? '#333' : '#3b82f6',
+            background: starting || isRunning ? '#333' : dryRun ? '#92400e' : '#3b82f6',
             color: '#fff',
             fontSize: 14,
           }}
         >
-          {starting ? '⏳ Starting...' : isRunning ? '⟳ Backfill Running...' : '▶ Start Full Backfill'}
+          {starting
+            ? '⏳ Starting...'
+            : isRunning
+              ? '⟳ Backfill Running...'
+              : buildButtonLabel(currentOptions)}
         </button>
         <button
           onClick={() => { setLoading(true); fetchStatus(); }}
@@ -176,6 +353,7 @@ export default function OpenClawBackfill() {
             {isRunning ? (
               <span>
                 🔄 Running
+                {status.options?.dryRun && <span style={{ color: '#f59e0b', marginLeft: 8, fontSize: 13 }}>(dry run)</span>}
                 <span
                   style={{
                     display: 'inline-block',
@@ -189,11 +367,30 @@ export default function OpenClawBackfill() {
                 />
               </span>
             ) : isComplete ? (
-              <span style={{ color: '#4caf50' }}>✅ Complete</span>
+              <span style={{ color: '#4caf50' }}>
+                ✅ Complete
+                {status.options?.dryRun && <span style={{ color: '#f59e0b', marginLeft: 8, fontSize: 13 }}>(dry run)</span>}
+              </span>
             ) : (
               <span style={{ color: '#888' }}>⏸ Idle</span>
             )}
           </h3>
+
+          {/* Options used (shown when running or complete) */}
+          {(isRunning || isComplete) && status.options && Object.keys(status.options).length > 0 && (
+            <div style={{
+              marginBottom: 16,
+              padding: '8px 12px',
+              borderRadius: 6,
+              background: '#0f172a',
+              border: '1px solid #1e293b',
+              color: '#94a3b8',
+              fontSize: 12,
+            }}>
+              <strong style={{ color: '#e2e8f0' }}>Options used: </strong>
+              {buildOptionsSummary(status.options)}
+            </div>
+          )}
 
           <div
             style={{
@@ -224,6 +421,30 @@ export default function OpenClawBackfill() {
                 {status.processed.toLocaleString()}
               </div>
             </div>
+            {(status.skipped != null && status.skipped > 0) && (
+              <div
+                style={{
+                  background: '#0d1f3c',
+                  padding: 14,
+                  borderRadius: 6,
+                  textAlign: 'center',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: '#888',
+                    textTransform: 'uppercase',
+                    marginBottom: 4,
+                  }}
+                >
+                  Skipped
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#f59e0b' }}>
+                  {status.skipped.toLocaleString()}
+                </div>
+              </div>
+            )}
             <div
               style={{
                 background: '#0d1f3c',
