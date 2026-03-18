@@ -17,6 +17,7 @@ import SlackDashboard from './pages/slack/Dashboard';
 import SlackChannels from './pages/slack/Channels';
 import SlackJobs from './pages/slack/Jobs';
 import SlackBackfill from './pages/slack/Backfill';
+import SlackScheduled from './pages/slack/Scheduled';
 import ChatGPTLoginStatus from './components/ChatGPTLoginStatus';
 import GmailDashboard from './pages/gmail/Dashboard';
 import GmailMailboxes from './pages/gmail/Mailboxes';
@@ -82,6 +83,7 @@ const sections: SidebarSection[] = [
       { to: '/slack/channels', icon: '📺', label: 'Channels' },
       { to: '/slack/jobs', icon: '📋', label: 'Jobs' },
       { to: '/slack/backfill', icon: '⏪', label: 'Backfill' },
+      { to: '/slack/scheduled', icon: '⏰', label: 'Scheduled' },
     ],
   },
   {
@@ -229,6 +231,7 @@ export default function App() {
           <Route path="/slack/channels" element={<SlackChannels />} />
           <Route path="/slack/jobs" element={<SlackJobs />} />
           <Route path="/slack/backfill" element={<SlackBackfill />} />
+          <Route path="/slack/scheduled" element={<SlackScheduled />} />
           <Route path="/anthropic/dashboard" element={<IngestorPlaceholder name="Anthropic Ingestor" icon="✳️" serviceKey="anthropic-ingestor" />} />
           {/* ChatGPT Ingestor */}
           <Route path="/chatgpt/dashboard" element={<ChatGPTDashboard />} />

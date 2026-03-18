@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { discordApi, apiFetch } from '../../api';
+import { slackApi } from '../../api';
 
 interface Job {
   id: string;
@@ -16,11 +16,6 @@ interface Job {
   intervalMinutes?: number;
   sincePreset?: string;
   cadencePreset?: string;
-}
-
-interface ChannelInfo {
-  channelName: string;
-  guildName?: string;
 }
 
 const SINCE_OPTIONS = ['1h', '4h', '12h', '1d', '7d', '30d'];
@@ -55,10 +50,8 @@ function computeNextRun(lastRunAt?: string, intervalMinutes?: number): string {
   return relativeTime(next.toISOString());
 }
 
-export default function DiscordScheduled() {
+export default function SlackScheduled() {
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [channels, setChannels] = useState<Record<string, ChannelInfo>>({});
-  const [channelStats, setChannelStats] = useState<Record<string, { lastMessageAt: string; messageCount: number }>>({});
   const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -71,31 +64,21 @@ export default function DiscordScheduled() {
 
   const refreshJobs = async () => {
     try {
-      const data = await discordApi<any>('/api/jobs');
+      const data = await slackApi<any>('/api/jobs');
       setJobs(Array.isArray(data) ? data : data?.jobs || []);
     } catch {}
   };
 
   useEffect(() => {
     Promise.allSettled([
-      discordApi<any>('/api/jobs'),
-      discordApi<any>('/api/scheduler/status'),
-      discordApi<any>('/api/channels'),
-      apiFetch<any>('/api/discord/channels/stats'),
-    ]).then(([jobsRes, schedRes, chRes, statsRes]) => {
+      slackApi<any>('/api/jobs'),
+      slackApi<any>('/api/scheduler/status'),
+    ]).then(([jobsRes, schedRes]) => {
       if (jobsRes.status === 'fulfilled') {
         setJobs(Array.isArray(jobsRes.value) ? jobsRes.value : jobsRes.value?.jobs || []);
       }
       if (schedRes.status === 'fulfilled') {
         setSchedulerStatus(schedRes.value);
-      }
-      if (chRes.status === 'fulfilled') {
-        const d = chRes.value;
-        const chMap = d.channels || d;
-        if (chMap && typeof chMap === 'object') setChannels(chMap);
-      }
-      if (statsRes.status === 'fulfilled' && statsRes.value?.channels) {
-        setChannelStats(statsRes.value.channels);
       }
     }).catch(e => setError(e.message)).finally(() => setLoading(false));
   }, []);
@@ -111,58 +94,9 @@ export default function DiscordScheduled() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const [staleConfirm, setStaleConfirm] = useState<Job[] | null>(null);
-  const [disablingStale, setDisablingStale] = useState(false);
-  const [staleToast, setStaleToast] = useState('');
-
-  const resolveChannelName = (channelId?: string): React.ReactNode => {
-    if (!channelId) return '—';
-    const info = channels[channelId];
-    if (!info) return <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{channelId}</span>;
-    if (!info.guildName) return <span>{info.channelName}</span>;
-    return (
-      <div>
-        <div style={{ color: '#e0e0e0' }}>#{info.channelName}</div>
-        <div style={{ fontSize: 11, color: '#888' }}>{info.guildName}</div>
-      </div>
-    );
-  };
-
-  const findStaleJobs = (): Job[] => {
-    const threshold = Date.now() - 100 * 86400000;
-    return jobs.filter(j => {
-      if (j.enabled === false) return false;
-      const chId = j.channel || j.channelId;
-      const stats = channelStats[chId || ''];
-      if (!stats?.lastMessageAt) return true;
-      return new Date(stats.lastMessageAt).getTime() < threshold;
-    });
-  };
-
-  const disableStaleJobs = async (staleJobs: Job[]) => {
-    setDisablingStale(true);
-    try {
-      await Promise.all(staleJobs.map(j =>
-        discordApi(`/api/jobs/${j.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: false }),
-        })
-      ));
-      await refreshJobs();
-      setStaleToast(`Disabled ${staleJobs.length} job${staleJobs.length === 1 ? '' : 's'} with no activity in 100+ days`);
-      setTimeout(() => setStaleToast(''), 5000);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setDisablingStale(false);
-      setStaleConfirm(null);
-    }
-  };
-
   const backfillJob = async (jobId: string, conflictMode?: string) => {
     try {
-      await discordApi(`/api/jobs/${jobId}/run-all`, {
+      await slackApi(`/api/jobs/${jobId}/run-all`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: conflictMode ? JSON.stringify({ conflict_mode: conflictMode }) : undefined,
@@ -173,12 +107,10 @@ export default function DiscordScheduled() {
     }
   };
 
-  const triggerJob = async (jobId: string, conflictMode?: string) => {
+  const triggerJob = async (jobId: string) => {
     try {
-      await discordApi(`/api/jobs/${jobId}/run`, {
+      await slackApi(`/api/jobs/${jobId}/run`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: conflictMode ? JSON.stringify({ conflict_mode: conflictMode }) : undefined,
       });
       setTimeout(refreshJobs, 1500);
     } catch (e: any) {
@@ -188,7 +120,7 @@ export default function DiscordScheduled() {
 
   const resetLastRun = async (jobId: string) => {
     try {
-      await discordApi(`/api/jobs/${jobId}`, {
+      await slackApi(`/api/jobs/${jobId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lastRunAt: null }),
@@ -202,7 +134,7 @@ export default function DiscordScheduled() {
 
   const toggleEnabled = async (jobId: string, enabled: boolean) => {
     try {
-      await discordApi(`/api/jobs/${jobId}`, {
+      await slackApi(`/api/jobs/${jobId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
@@ -216,7 +148,7 @@ export default function DiscordScheduled() {
   const toggleAllEnabled = async (enabled: boolean) => {
     try {
       await Promise.all(jobs.map(j =>
-        discordApi(`/api/jobs/${j.id}`, {
+        slackApi(`/api/jobs/${j.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled }),
@@ -231,7 +163,7 @@ export default function DiscordScheduled() {
   const deleteJob = async (jobId: string) => {
     if (!confirm('Delete this job?')) return;
     try {
-      await discordApi(`/api/jobs/${jobId}`, { method: 'DELETE' });
+      await slackApi(`/api/jobs/${jobId}`, { method: 'DELETE' });
       await refreshJobs();
     } catch (e: any) {
       setError(e.message);
@@ -257,7 +189,7 @@ export default function DiscordScheduled() {
     setEditSaving(true);
     setEditError('');
     try {
-      await discordApi(`/api/jobs/${editJob.id}`, {
+      await slackApi(`/api/jobs/${editJob.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -294,16 +226,6 @@ export default function DiscordScheduled() {
               {(schedulerStatus.concurrency > 0 || schedulerStatus.runningIds !== undefined) ? 'Running' : 'Stopped'}
             </strong>
           </p>
-          <button
-            onClick={() => {
-              const stale = findStaleJobs();
-              if (stale.length === 0) { setStaleToast('No stale jobs found (all active within 100 days)'); setTimeout(() => setStaleToast(''), 4000); return; }
-              setStaleConfirm(stale);
-            }}
-            style={{ padding: '5px 12px', background: '#f59e0b22', border: '1px solid #f59e0b', borderRadius: 6, color: '#f59e0b', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
-          >
-            ⚠️ Disable Stale Jobs
-          </button>
         </div>
       )}
 
@@ -324,7 +246,6 @@ export default function DiscordScheduled() {
                   <th>Channel</th>
                   <th>Schedule</th>
                   <th>Last Run</th>
-                  <th>Last Message</th>
                   <th>Next Run</th>
                   <th>Actions</th>
                 </tr>
@@ -342,22 +263,15 @@ export default function DiscordScheduled() {
                         />
                       </td>
                       <td>
-                        {(() => {
-                          const info = channels[channelId || ''];
-                          return (
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{info?.channelName || channelId || '—'}</div>
-                              {info?.guildName && <div style={{ fontSize: 11, color: '#666' }}>{info.guildName}</div>}
-                            </div>
-                          );
-                        })()}
+                        <div>
+                          <div style={{ fontWeight: 600 }}>{job.name || channelId || '—'}</div>
+                          {channelId && <div style={{ fontSize: 11, color: '#666', fontFamily: 'monospace' }}>{channelId}</div>}
+                        </div>
                       </td>
                       <td><code>{job.cadencePreset || formatSchedule(job.intervalMinutes)}</code></td>
                       <td title={job.lastRunAt || job.lastRun || ''}>{relativeTime(job.lastRunAt || job.lastRun)}</td>
-                      <td title={channelStats[channelId || '']?.lastMessageAt || ''}>{relativeTime(channelStats[channelId || '']?.lastMessageAt)}</td>
                       <td>{computeNextRun(job.lastRunAt || job.lastRun, job.intervalMinutes)}</td>
                       <td>
-                        <div style={{ fontSize: 10, color: '#666', fontFamily: 'monospace', marginBottom: 2 }}>{job.id}</div>
                         <div style={{ display: 'flex', gap: 4, alignItems: 'center', position: 'relative' }}>
                           <button onClick={() => triggerJob(job.id)} style={{ fontSize: 12, padding: '4px 10px' }}>
                             ▶ Run
@@ -464,11 +378,6 @@ export default function DiscordScheduled() {
                 onChange={e => setEditForm({ ...editForm, channel: e.target.value })}
                 style={{ width: '100%', padding: '6px 10px', background: '#40444b', border: '1px solid #555', borderRadius: 6, color: '#e0e0e0' }}
               />
-              {channels[editForm.channel] && (
-                <div style={{ fontSize: 11, color: '#7289da', marginTop: 2 }}>
-                  #{channels[editForm.channel].channelName}
-                </div>
-              )}
             </div>
 
             <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
@@ -525,53 +434,12 @@ export default function DiscordScheduled() {
               <button
                 onClick={saveEdit}
                 disabled={editSaving}
-                style={{ padding: '8px 16px', background: '#7289da', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer' }}
+                style={{ padding: '8px 16px', background: '#4a9eda', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer' }}
               >
                 {editSaving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>
-        </div>
-      )}
-      {/* Stale Jobs Confirmation Modal */}
-      {staleConfirm && (
-        <div
-          onClick={(e) => { if (e.target === e.currentTarget) setStaleConfirm(null); }}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
-          }}
-        >
-          <div style={{
-            background: '#2f3136', border: '1px solid #f59e0b', borderRadius: 12,
-            padding: 24, width: '100%', maxWidth: 480,
-          }}>
-            <h2 style={{ margin: '0 0 12px', fontSize: '1.1rem', color: '#f59e0b' }}>⚠️ Disable Stale Jobs</h2>
-            <p style={{ color: '#ccc', fontSize: 14, margin: '0 0 12px' }}>
-              {staleConfirm.length} job{staleConfirm.length === 1 ? '' : 's'} with no channel activity in 100+ days:
-            </p>
-            <ul style={{ maxHeight: 200, overflowY: 'auto', paddingLeft: 20, color: '#aaa', fontSize: 13, margin: '0 0 16px' }}>
-              {staleConfirm.map(j => <li key={j.id}>{j.name || j.id}</li>)}
-            </ul>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setStaleConfirm(null)} style={{ padding: '8px 16px', background: '#4f545c', border: 'none', borderRadius: 6, color: '#ccc', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={() => disableStaleJobs(staleConfirm)} disabled={disablingStale} style={{ padding: '8px 16px', background: '#f59e0b', border: 'none', borderRadius: 6, color: '#000', cursor: 'pointer', fontWeight: 600 }}>
-                {disablingStale ? 'Disabling…' : `Disable ${staleConfirm.length} Jobs`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Toast */}
-      {staleToast && (
-        <div style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          background: '#323529', border: '1px solid #f59e0b', borderRadius: 8,
-          padding: '10px 20px', color: '#f59e0b', fontSize: 14, zIndex: 200,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-        }}>
-          {staleToast}
         </div>
       )}
     </div>
