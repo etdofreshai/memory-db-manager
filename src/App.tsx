@@ -32,6 +32,7 @@ import OpenClawDashboard from './pages/openclaw/Dashboard';
 import OpenClawLiveSessions from './pages/openclaw/LiveSessions';
 import OpenClawMemorySessions from './pages/openclaw/MemorySessions';
 import OpenClawBackfill from './pages/openclaw/Backfill';
+import Tokens from './pages/Tokens';
 import { getServiceConfig, checkHealth, ServiceConfig } from './api';
 
 interface SidebarSection {
@@ -51,6 +52,7 @@ const sections: SidebarSection[] = [
       { to: '/memory/sources', icon: '📡', label: 'Sources' },
       { to: '/memory/people', icon: '👤', label: 'People' },
       { to: '/memory/attachments', icon: '📎', label: 'Attachments' },
+      { to: '/memory/tokens', icon: '🔑', label: 'Tokens' },
     ],
   },
   {
@@ -197,6 +199,7 @@ export default function App() {
           <Route path="/memory/sources" element={<Sources />} />
           <Route path="/memory/people" element={<People />} />
           <Route path="/memory/attachments" element={<Attachments />} />
+          <Route path="/memory/tokens" element={<Tokens />} />
           {/* Discord Ingestor */}
           <Route path="/discord/dashboard" element={<DiscordDashboard />} />
           <Route path="/discord/jobs" element={<DiscordJobs />} />
