@@ -130,4 +130,53 @@ app.use('/api', (req, res) => {
 app.use(express.static(join(__dirname, 'dist')));
 app.get('*', (_req, res) => res.sendFile(join(__dirname, 'dist', 'index.html')));
 
-app.listen(PORT, () => console.log(`Server listening on :${PORT}`));
+const server = http.createServer(app);
+
+// WebSocket proxy for /proxy/<service>/... paths
+server.on('upgrade', (req, socket, head) => {
+  const match = req.url?.match(/^\/proxy\/([^/]+)(\/.*)/);
+  if (!match) {
+    socket.destroy();
+    return;
+  }
+  const [, serviceName, path] = match;
+  const svc = services[serviceName];
+  if (!svc?.url) {
+    socket.destroy();
+    return;
+  }
+
+  const targetUrl = new URL(svc.url);
+  const options = {
+    hostname: targetUrl.hostname,
+    port: targetUrl.port || (targetUrl.protocol === 'https:' ? 443 : 80),
+    path,
+    method: 'GET',
+    headers: {
+      ...req.headers,
+      host: targetUrl.host,
+      ...(svc.token ? { authorization: `Bearer ${svc.token}` } : {}),
+    },
+  };
+
+  const agent = targetUrl.protocol === 'https:' ? https : http;
+  const proxyReq = agent.request(options);
+
+  proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+    socket.write(
+      `HTTP/1.1 101 Switching Protocols\r\n` +
+      Object.entries(proxyRes.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n') +
+      '\r\n\r\n'
+    );
+    if (proxyHead.length) socket.write(proxyHead);
+    proxySocket.pipe(socket);
+    socket.pipe(proxySocket);
+    proxySocket.on('error', () => socket.destroy());
+    socket.on('error', () => proxySocket.destroy());
+  });
+
+  proxyReq.on('error', () => socket.destroy());
+  proxyReq.end();
+});
+
+server.listen(PORT, () => console.log(`Server listening on :${PORT}`));
