@@ -160,9 +160,13 @@ export default function DiscordScheduled() {
     }
   };
 
-  const triggerJob = async (jobId: string) => {
+  const triggerJob = async (jobId: string, conflictMode?: string) => {
     try {
-      await discordApi(`/api/jobs/${jobId}/run`, { method: 'POST' });
+      await discordApi(`/api/jobs/${jobId}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: conflictMode ? JSON.stringify({ conflict_mode: conflictMode }) : undefined,
+      });
       setTimeout(refreshJobs, 1500);
     } catch (e: any) {
       setError(e.message);
@@ -355,8 +359,17 @@ export default function DiscordScheduled() {
                               <div style={{
                                 position: 'absolute', right: 0, top: '100%', marginTop: 4,
                                 background: '#2f3136', border: '1px solid #555', borderRadius: 6,
-                                zIndex: 50, minWidth: 120, boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+                                zIndex: 50, minWidth: 160, boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
                               }}>
+                                <button
+                                  onClick={() => { setMenuOpen(null); triggerJob(job.id, 'skip_or_overwrite'); }}
+                                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#fbbf24', cursor: 'pointer', fontSize: 13 }}
+                                  onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                                  onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                                  title="Run and overwrite existing messages with updated content"
+                                >
+                                  ▶ Run (overwrite)
+                                </button>
                                 <button
                                   onClick={() => resetLastRun(job.id)}
                                   style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', color: '#e0e0e0', cursor: 'pointer', fontSize: 13 }}
