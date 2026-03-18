@@ -25,14 +25,23 @@ interface SessionGroup {
 /* ── Helpers ───────────────────────────────────────────── */
 
 function parseSessionKey(msg: DbMessage): string {
-  // Try metadata.sessionId first
   if (msg.metadata) {
     const meta = typeof msg.metadata === 'string' ? tryParse(msg.metadata) : msg.metadata;
-    if (meta?.sessionId) return meta.sessionId;
-    if (meta?.session_id) return meta.session_id;
+    // Prefer sessionKey (proper agent key like agent:main:telegram:...)
+    if (meta?.sessionKey && String(meta.sessionKey).startsWith('agent:')) return meta.sessionKey;
+    // Fall back to sessionId only if it looks like a real session key (not a UUID)
+    if (meta?.sessionId && String(meta.sessionId).startsWith('agent:')) return meta.sessionId;
   }
-  // Fallback: parse from external_id — split from RIGHT on ':' once
+  // Parse from external_id — session key is everything before the last UUID/message-id segment
   if (msg.external_id) {
+    // If external_id starts with agent:, extract the session key part
+    if (msg.external_id.startsWith('agent:')) {
+      // Session key format: agent:main:channel:..., messageId is the last segment
+      // Count colons: session keys have predictable depth, message IDs appended at end
+      const lastColon = msg.external_id.lastIndexOf(':');
+      if (lastColon > 0) return msg.external_id.slice(0, lastColon);
+    }
+    // Otherwise return whole external_id minus last segment (UUID-based old format)
     const lastColon = msg.external_id.lastIndexOf(':');
     if (lastColon > 0) return msg.external_id.slice(0, lastColon);
   }
