@@ -32,6 +32,7 @@ import OpenClawDashboard from './pages/openclaw/Dashboard';
 import OpenClawLiveSessions from './pages/openclaw/LiveSessions';
 import OpenClawMemorySessions from './pages/openclaw/MemorySessions';
 import OpenClawBackfill from './pages/openclaw/Backfill';
+import IMessageConversations from './pages/imessage/Conversations';
 import Tokens from './pages/Tokens';
 import { getServiceConfig, checkHealth, ServiceConfig } from './api';
 
@@ -101,6 +102,12 @@ const sections: SidebarSection[] = [
       { to: '/openclaw/live-sessions', icon: '🔴', label: 'Live Sessions' },
       { to: '/openclaw/memory-sessions', icon: '🗄️', label: 'Memory Sessions' },
       { to: '/openclaw/backfill', icon: '⏪', label: 'Backfill' },
+    ],
+  },
+  {
+    key: 'imessage', icon: '💬', label: 'iMessage',
+    items: [
+      { to: '/imessage/conversations', icon: '💬', label: 'Conversations' },
     ],
   },
 ];
@@ -231,6 +238,8 @@ export default function App() {
           <Route path="/openclaw/live-sessions" element={<OpenClawLiveSessions />} />
           <Route path="/openclaw/memory-sessions" element={<OpenClawMemorySessions />} />
           <Route path="/openclaw/backfill" element={<OpenClawBackfill />} />
+          {/* iMessage */}
+          <Route path="/imessage/conversations" element={<IMessageConversations />} />
           {/* Default */}
           <Route path="*" element={<Navigate to="/memory/messages" replace />} />
         </Routes>
