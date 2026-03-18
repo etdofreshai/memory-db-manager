@@ -220,13 +220,13 @@ export default function IMessageConversations() {
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 16, fontWeight: 600, color: '#fff',
                 }}>
-                  {conv.is_group ? '👥' : initials(conv.display_name)}
+                  {conv.is_group ? '👥' : initials(conv.display_name || conv.conversation_id || '?')}
                 </div>
                 {/* Text */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                     <span style={{ fontWeight: 600, color: '#fff', fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>
-                      {conv.display_name}
+                      {conv.display_name || conv.conversation_id}
                     </span>
                     <span style={{ color: '#8e8e93', fontSize: 12, flexShrink: 0 }}>
                       {relativeTime(conv.last_message_at)}
@@ -258,14 +258,14 @@ export default function IMessageConversations() {
             </button>
             <div style={{
               width: 36, height: 36, borderRadius: '50%',
-              background: avatarColor(selected.display_name),
+              background: avatarColor(selected.display_name || selected.conversation_id || '?'),
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 14, fontWeight: 600, color: '#fff',
             }}>
-              {selected.is_group ? '👥' : initials(selected.display_name)}
+              {selected.is_group ? '👥' : initials(selected.display_name || selected.conversation_id || '?')}
             </div>
             <div>
-              <div style={{ color: '#fff', fontWeight: 600, fontSize: 16 }}>{selected.display_name}</div>
+              <div style={{ color: '#fff', fontWeight: 600, fontSize: 16 }}>{selected.display_name || selected.conversation_id}</div>
               <div style={{ color: '#8e8e93', fontSize: 12 }}>{selected.message_count.toLocaleString()} messages</div>
             </div>
           </div>
@@ -314,7 +314,7 @@ export default function IMessageConversations() {
                     }}>
                       <div style={{ maxWidth: '70%' }}>
                         {/* Attachments */}
-                        {msg.attachments?.map(att => {
+                        {(msg.attachments || []).map(att => {
                           const isImage = att.mime_type?.startsWith('image/');
                           const isVideo = att.mime_type?.startsWith('video/');
                           const isAudio = att.mime_type?.startsWith('audio/');
