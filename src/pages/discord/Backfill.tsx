@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { discordApi } from '../../api';
 import { usePersistedFilters } from '../../hooks/usePersistedFilters';
 import ResetFiltersButton from '../../components/ResetFiltersButton';
+import BackfillOptions, { BackfillConfig, defaultBackfillConfig } from '../../components/BackfillOptions';
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -50,16 +51,29 @@ export default function DiscordBackfill() {
   // Channels
   const [channels, setChannels] = useState<Record<string, ChannelInfo>>({});
 
-  // Persisted backfill options
-  const BACKFILL_DEFAULTS = { selectedChannel: '', allChannels: true, forceMode: false, batchSize: 10, limit: '', dryRun: false };
-  const [bfFilters, setBfFilters, resetBfFilters, isBfDirty] = usePersistedFilters('filters:discord-backfill', BACKFILL_DEFAULTS);
-  const { selectedChannel, allChannels, forceMode, batchSize, limit, dryRun } = bfFilters;
+  // Persisted backfill options (discord-specific + shared config)
+  const BACKFILL_DEFAULTS = {
+    selectedChannel: '',
+    allChannels: true,
+    batchSize: 10,
+    limit: '',
+    ...defaultBackfillConfig,
+  };
+  const [bfFilters, setBfFilters, resetBfFilters, isBfDirty] = usePersistedFilters('filters:discord-backfill-v2', BACKFILL_DEFAULTS);
+  const { selectedChannel, allChannels, batchSize, limit } = bfFilters;
   const setSelectedChannel = (v: string) => setBfFilters({ selectedChannel: v });
   const setAllChannels = (v: boolean) => setBfFilters({ allChannels: v });
-  const setForceMode = (v: boolean) => setBfFilters({ forceMode: v });
   const setBatchSize = (v: number) => setBfFilters({ batchSize: v });
   const setLimit = (v: string) => setBfFilters({ limit: v });
-  const setDryRun = (v: boolean) => setBfFilters({ dryRun: v });
+
+  // BackfillConfig from persisted filters
+  const backfillConfig: BackfillConfig = {
+    existingMessages: bfFilters.existingMessages,
+    dryRun: bfFilters.dryRun,
+    downloadAttachments: bfFilters.downloadAttachments,
+    existingAttachments: bfFilters.existingAttachments,
+  };
+  const setBackfillConfig = (cfg: BackfillConfig) => setBfFilters(cfg);
 
   // Active run
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -84,14 +98,12 @@ export default function DiscordBackfill() {
   useEffect(() => {
     discordApi<any>('/api/channels')
       .then(data => {
-        // API returns Record<channelId, ChannelInfo>
         if (data && typeof data === 'object' && !Array.isArray(data)) {
-          // Could be { channels: {...} } or directly the map
           const chMap = data.channels || data;
           setChannels(chMap);
         }
       })
-      .catch(() => {}); // Non-critical
+      .catch(() => {});
   }, []);
 
   /* ── Load runs ───────────────────────────────────────── */
@@ -169,12 +181,16 @@ export default function DiscordBackfill() {
     setError('');
     setStarting(true);
     try {
-      // Use refetch/start which fetches from Discord API
       const body: any = {
         batchSize,
-        dryRun,
-        attachmentMode: forceMode ? 'force' : 'missing',
+        dryRun: backfillConfig.dryRun,
+        downloadAttachments: backfillConfig.downloadAttachments,
+        attachmentMode: backfillConfig.existingMessages === 'overwrite' ? 'force' : 'missing',
       };
+      if (backfillConfig.existingMessages === 'overwrite') body.force = true;
+      if (backfillConfig.existingMessages === 'append') body.appendMessages = true;
+      if (backfillConfig.existingAttachments === 'overwrite') body.overwriteAttachments = true;
+      if (backfillConfig.existingAttachments === 'append') body.appendAttachments = true;
       if (limit) body.limit = parseInt(limit);
 
       const data = await discordApi<any>('/api/refetch/start', {
@@ -242,7 +258,7 @@ export default function DiscordBackfill() {
 
   useEffect(() => {
     if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = 0; // newest first
+      logContainerRef.current.scrollTop = 0;
     }
   }, [eventLog]);
 
@@ -261,9 +277,6 @@ export default function DiscordBackfill() {
     ? Math.round((progress.page / progress.totalPages) * 100)
     : 0;
 
-  const activeRuns = runs.filter(r => r.status === 'running' || r.status === 'paused');
-  const completedRuns = runs.filter(r => r.status !== 'running' && r.status !== 'paused');
-
   /* ── Render ──────────────────────────────────────────── */
 
   return (
@@ -276,29 +289,6 @@ export default function DiscordBackfill() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ margin: 0 }}>Start Backfill</h3>
           <ResetFiltersButton onReset={resetBfFilters} visible={isBfDirty} />
-        </div>
-
-        {/* Mode explanation */}
-        <div style={{ marginBottom: 16, padding: 12, background: '#0d1f3c', borderRadius: 6, fontSize: 13 }}>
-          <div style={{ marginBottom: 8 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={forceMode}
-                onChange={e => setForceMode(e.target.checked)}
-                style={{ width: 18, height: 18 }}
-              />
-              <strong style={{ color: forceMode ? '#f59e0b' : '#ccc' }}>Force Backfill</strong>
-            </label>
-            <div style={{ color: '#999', marginLeft: 26, marginTop: 2 }}>
-              Re-download and overwrite existing messages, attachments, and content
-            </div>
-          </div>
-          <div style={{ color: '#7facd6', marginLeft: 26, fontSize: 12 }}>
-            {forceMode
-              ? '⚠️ Will re-download everything, even if already present'
-              : '✓ Default mode: skip messages that already have content and attachment links'}
-          </div>
         </div>
 
         {/* Channel selector */}
@@ -339,32 +329,34 @@ export default function DiscordBackfill() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: '#aaa' }}>Limit (blank = all)</label>
-            <input
-              type="number"
-              value={limit}
-              onChange={e => setLimit(e.target.value)}
-              placeholder="No limit"
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 4, border: '1px solid #333', background: '#0a1628', color: '#eee' }}
-            />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'end', paddingBottom: 4 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
-              <input type="checkbox" checked={dryRun} onChange={e => setDryRun(e.target.checked)} />
-              Dry Run (download only, don't ingest)
-            </label>
-          </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: '#aaa' }}>Limit (blank = all)</label>
+          <input
+            type="number"
+            value={limit}
+            onChange={e => setLimit(e.target.value)}
+            placeholder="No limit"
+            style={{ width: '100%', maxWidth: 200, padding: '8px 10px', borderRadius: 4, border: '1px solid #333', background: '#0a1628', color: '#eee' }}
+          />
         </div>
+      </div>
 
+      {/* ── Shared Backfill Options ────────────────────── */}
+      <BackfillOptions
+        value={backfillConfig}
+        onChange={setBackfillConfig}
+        disabled={isActive}
+      />
+
+      {/* ── Start / Pause / Resume Buttons ─────────────── */}
+      <div className="card" style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             onClick={startBackfill}
             disabled={starting || isActive}
             style={{
               padding: '10px 20px', borderRadius: 6, border: 'none', fontWeight: 600, cursor: starting || isActive ? 'not-allowed' : 'pointer',
-              background: starting || isActive ? '#333' : '#3b82f6', color: '#fff',
+              background: starting || isActive ? '#333' : backfillConfig.dryRun ? '#92400e' : '#3b82f6', color: '#fff',
             }}
           >
             {starting ? '⏳ Starting...' : '▶ Start Backfill'}

@@ -1,5 +1,8 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { slackApi } from '../../api';
+import BackfillOptions, { BackfillConfig, defaultBackfillConfig } from '../../components/BackfillOptions';
+import { usePersistedFilters } from '../../hooks/usePersistedFilters';
+import ResetFiltersButton from '../../components/ResetFiltersButton';
 
 interface BackfillRun {
   runId: string;
@@ -62,9 +65,25 @@ export default function SlackBackfill() {
   const [activeStatus, setActiveStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedChannel, setSelectedChannel] = useState('');
   const [starting, setStarting] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Persisted Slack-specific + shared backfill config
+  const SLACK_DEFAULTS = {
+    selectedChannel: '',
+    ...defaultBackfillConfig,
+  };
+  const [bfFilters, setBfFilters, resetBfFilters, isBfDirty] = usePersistedFilters('filters:slack-backfill-v2', SLACK_DEFAULTS);
+  const { selectedChannel } = bfFilters;
+  const setSelectedChannel = (v: string) => setBfFilters({ selectedChannel: v });
+
+  const backfillConfig: BackfillConfig = {
+    existingMessages: bfFilters.existingMessages,
+    dryRun: bfFilters.dryRun,
+    downloadAttachments: bfFilters.downloadAttachments,
+    existingAttachments: bfFilters.existingAttachments,
+  };
+  const setBackfillConfig = (cfg: BackfillConfig) => setBfFilters(cfg);
 
   const channelMap = Object.fromEntries(channels.map(c => [c.id, c.name]));
 
@@ -101,7 +120,6 @@ export default function SlackBackfill() {
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-refresh when active
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (activeStatus?.status === 'running' || activeStatus?.status === 'paused') {
@@ -114,9 +132,20 @@ export default function SlackBackfill() {
     if (!selectedChannel) return;
     setStarting(true);
     try {
+      // Map BackfillConfig → Slack API params (best-effort)
+      const body: Record<string, any> = {
+        channelId: selectedChannel,
+        dryRun: backfillConfig.dryRun,
+        downloadAttachments: backfillConfig.downloadAttachments,
+      };
+      if (backfillConfig.existingMessages === 'overwrite') body.force = true;
+      if (backfillConfig.existingMessages === 'append') body.appendMessages = true;
+      if (backfillConfig.existingAttachments === 'overwrite') body.overwriteAttachments = true;
+      if (backfillConfig.existingAttachments === 'append') body.appendAttachments = true;
+
       await slackApi('/api/backfill/start', {
         method: 'POST',
-        body: JSON.stringify({ channelId: selectedChannel }),
+        body: JSON.stringify(body),
       });
       await fetchData();
     } catch (e: any) {
@@ -212,26 +241,52 @@ export default function SlackBackfill() {
       {/* Start new backfill */}
       {!isActive && (
         <div className="card" style={{ marginBottom: 24 }}>
-          <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>Start Backfill</h3>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ margin: 0, fontSize: 16 }}>Start Backfill</h3>
+            <ResetFiltersButton onReset={resetBfFilters} visible={isBfDirty} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: '#aaa' }}>Channel</label>
             <select
               value={selectedChannel}
               onChange={e => setSelectedChannel(e.target.value)}
-              style={{ flex: 1, minWidth: 200, padding: '8px 10px', background: '#1e1e1e', border: '1px solid #555', borderRadius: 4, color: '#e0e0e0' }}
+              style={{ width: '100%', maxWidth: 400, padding: '8px 10px', background: '#1e1e1e', border: '1px solid #555', borderRadius: 4, color: '#e0e0e0' }}
             >
               <option value="">Select a channel…</option>
               {channels.map(c => (
                 <option key={c.id} value={c.id}>#{c.name}</option>
               ))}
             </select>
-            <button
-              onClick={handleStart}
-              disabled={!selectedChannel || starting}
-              style={{ padding: '8px 16px', background: selectedChannel ? '#1a3a6a' : '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: selectedChannel && !starting ? 'pointer' : 'not-allowed' }}
-            >
-              {starting ? 'Starting…' : '▶ Start'}
-            </button>
           </div>
+        </div>
+      )}
+
+      {/* Shared Backfill Options */}
+      <BackfillOptions
+        value={backfillConfig}
+        onChange={setBackfillConfig}
+        disabled={isActive}
+      />
+
+      {/* Start button */}
+      {!isActive && (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <button
+            onClick={handleStart}
+            disabled={!selectedChannel || starting}
+            style={{
+              padding: '10px 20px',
+              background: selectedChannel && !starting ? (backfillConfig.dryRun ? '#92400e' : '#1a3a6a') : '#374151',
+              border: 'none',
+              borderRadius: 6,
+              color: '#fff',
+              fontWeight: 600,
+              fontSize: 14,
+              cursor: selectedChannel && !starting ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {starting ? '⏳ Starting…' : '▶ Start Backfill'}
+          </button>
         </div>
       )}
 

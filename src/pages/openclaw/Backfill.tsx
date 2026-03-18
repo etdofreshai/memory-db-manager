@@ -1,15 +1,10 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { openclawApi } from '../../api';
+import BackfillOptions, { BackfillConfig, defaultBackfillConfig } from '../../components/BackfillOptions';
+import { usePersistedFilters } from '../../hooks/usePersistedFilters';
+import ResetFiltersButton from '../../components/ResetFiltersButton';
 
 /* ── Types ─────────────────────────────────────────────── */
-
-interface BackfillOptions {
-  full?: boolean;
-  dryRun?: boolean;
-  overwrite?: boolean;
-  attachmentsOnly?: boolean;
-  includeAttachments?: boolean;
-}
 
 interface BackfillStatus {
   running: boolean;
@@ -18,7 +13,7 @@ interface BackfillStatus {
   skipped?: number;
   errors: number;
   completedAt: string | null;
-  options?: BackfillOptions;
+  options?: Record<string, any>;
 }
 
 /* ── Helpers ───────────────────────────────────────────── */
@@ -40,55 +35,6 @@ function formatISO(iso: string | null): string {
   }
 }
 
-function buildButtonLabel(options: BackfillOptions): string {
-  const parts: string[] = [];
-  if (options.dryRun) parts.push('dry run');
-  if (options.overwrite) parts.push('overwrite');
-  if (options.attachmentsOnly) parts.push('attachments only');
-  if (options.includeAttachments === false) parts.push('no attachments');
-  else if (!options.attachmentsOnly) parts.push('with attachments');
-
-  if (parts.length === 0) return '▶ Start Full Backfill';
-  return `▶ Start Backfill (${parts.join(', ')})`;
-}
-
-function buildOptionsSummary(options: BackfillOptions): string {
-  const parts: string[] = [];
-  if (options.dryRun) parts.push('🧪 Dry Run');
-  if (options.overwrite) parts.push('✏️ Overwrite');
-  if (options.attachmentsOnly) parts.push('📎 Attachments Only');
-  if (options.includeAttachments === false) parts.push('🚫 No Attachments');
-  else parts.push('📎 With Attachments');
-  if (options.full !== false) parts.push('🔄 Full Resync');
-  return parts.join('  •  ');
-}
-
-/* ── Styles ────────────────────────────────────────────── */
-
-const toggleRow: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-  padding: '10px 0',
-  borderBottom: '1px solid #1e293b',
-};
-
-const toggleLabel: React.CSSProperties = {
-  flex: 1,
-};
-
-const toggleName: React.CSSProperties = {
-  fontWeight: 600,
-  color: '#e2e8f0',
-  fontSize: 14,
-};
-
-const toggleDesc: React.CSSProperties = {
-  color: '#94a3b8',
-  fontSize: 12,
-  marginTop: 2,
-};
-
 /* ── Component ─────────────────────────────────────────── */
 
 export default function OpenClawBackfill() {
@@ -98,19 +44,15 @@ export default function OpenClawBackfill() {
   const [error, setError] = useState('');
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Options state
-  const [dryRun, setDryRun] = useState(false);
-  const [overwrite, setOverwrite] = useState(false);
-  const [attachmentsOnly, setAttachmentsOnly] = useState(false);
-  const [includeAttachments, setIncludeAttachments] = useState(true);
-
-  const currentOptions: BackfillOptions = {
-    full: true,
-    dryRun,
-    overwrite: attachmentsOnly ? false : overwrite,
-    attachmentsOnly,
-    includeAttachments: attachmentsOnly ? true : includeAttachments,
+  // Persisted backfill config
+  const [bfFilters, setBfFilters, resetBfFilters, isBfDirty] = usePersistedFilters('filters:openclaw-backfill-v2', defaultBackfillConfig);
+  const backfillConfig: BackfillConfig = {
+    existingMessages: bfFilters.existingMessages,
+    dryRun: bfFilters.dryRun,
+    downloadAttachments: bfFilters.downloadAttachments,
+    existingAttachments: bfFilters.existingAttachments,
   };
+  const setBackfillConfig = (cfg: BackfillConfig) => setBfFilters(cfg);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -124,12 +66,10 @@ export default function OpenClawBackfill() {
     }
   }, []);
 
-  // Initial load
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
 
-  // Auto-refresh while running
   useEffect(() => {
     if (status?.running) {
       intervalRef.current = setInterval(fetchStatus, 5000);
@@ -148,14 +88,32 @@ export default function OpenClawBackfill() {
     setStarting(true);
     setError('');
     try {
+      // Map BackfillConfig → OpenClaw ingestor API params
+      const apiOptions: Record<string, any> = {
+        full: true,
+        dryRun: backfillConfig.dryRun,
+        includeAttachments: backfillConfig.downloadAttachments,
+      };
+
+      if (backfillConfig.existingMessages === 'overwrite') {
+        apiOptions.overwrite = true;
+      } else if (backfillConfig.existingMessages === 'append') {
+        apiOptions.appendMessages = true;
+      }
+
+      if (backfillConfig.existingAttachments === 'overwrite') {
+        apiOptions.overwriteAttachments = true;
+      } else if (backfillConfig.existingAttachments === 'append') {
+        apiOptions.appendAttachments = true;
+      }
+
       const res = await openclawApi<{ ok: boolean; message: string }>('/api/backfill', {
         method: 'POST',
-        body: JSON.stringify(currentOptions),
+        body: JSON.stringify(apiOptions),
       });
       if (!res.ok) {
         setError(res.message || 'Failed to start backfill');
       }
-      // Start polling immediately
       setTimeout(fetchStatus, 1000);
     } catch (e: any) {
       setError(e.message || 'Failed to start backfill');
@@ -167,7 +125,6 @@ export default function OpenClawBackfill() {
   const isRunning = status?.running ?? false;
   const isComplete = !isRunning && status?.completedAt != null;
 
-  // Compute duration if available
   let durationStr = '—';
   if (status?.startedAt && status.completedAt) {
     const dur = (new Date(status.completedAt).getTime() - new Date(status.startedAt).getTime()) / 1000;
@@ -204,108 +161,21 @@ export default function OpenClawBackfill() {
         </div>
       </div>
 
-      {/* Backfill Options Card */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <h3 style={{ margin: '0 0 16px' }}>⚙️ Backfill Options</h3>
-
-        <div style={toggleRow}>
-          <input
-            type="checkbox"
-            id="opt-dry-run"
-            checked={dryRun}
-            onChange={e => setDryRun(e.target.checked)}
-            style={{ width: 18, height: 18, accentColor: '#f59e0b', cursor: 'pointer' }}
-          />
-          <label htmlFor="opt-dry-run" style={toggleLabel}>
-            <div style={toggleName}>🧪 Dry Run</div>
-            <div style={toggleDesc}>
-              Preview what would be ingested without writing anything
-            </div>
-          </label>
+      {/* Shared Backfill Options */}
+      <div style={{ position: 'relative' }}>
+        <div style={{ position: 'absolute', top: 12, right: 16, zIndex: 1 }}>
+          <ResetFiltersButton onReset={resetBfFilters} visible={isBfDirty} />
         </div>
-
-        <div style={{ ...toggleRow, opacity: attachmentsOnly ? 0.4 : 1 }}>
-          <input
-            type="checkbox"
-            id="opt-overwrite"
-            checked={overwrite}
-            onChange={e => setOverwrite(e.target.checked)}
-            disabled={attachmentsOnly}
-            style={{ width: 18, height: 18, accentColor: '#3b82f6', cursor: attachmentsOnly ? 'not-allowed' : 'pointer' }}
-          />
-          <label htmlFor="opt-overwrite" style={toggleLabel}>
-            <div style={toggleName}>✏️ Overwrite Existing</div>
-            <div style={toggleDesc}>
-              Update records that already exist (PUT on 409 duplicate)
-              {attachmentsOnly && <span style={{ color: '#f59e0b', marginLeft: 8 }}>— disabled in attachments-only mode</span>}
-            </div>
-          </label>
-        </div>
-
-        <div style={toggleRow}>
-          <input
-            type="checkbox"
-            id="opt-attachments-only"
-            checked={attachmentsOnly}
-            onChange={e => {
-              setAttachmentsOnly(e.target.checked);
-              if (e.target.checked) {
-                setOverwrite(false);
-                setIncludeAttachments(true);
-              }
-            }}
-            style={{ width: 18, height: 18, accentColor: '#8b5cf6', cursor: 'pointer' }}
-          />
-          <label htmlFor="opt-attachments-only" style={toggleLabel}>
-            <div style={toggleName}>📎 Attachments Only</div>
-            <div style={toggleDesc}>
-              Only process attachments, skip message text upsert (useful for adding attachments to already-ingested messages)
-            </div>
-          </label>
-        </div>
-
-        <div style={{ ...toggleRow, borderBottom: 'none', opacity: attachmentsOnly ? 0.4 : 1 }}>
-          <input
-            type="checkbox"
-            id="opt-include-attachments"
-            checked={attachmentsOnly ? true : includeAttachments}
-            onChange={e => setIncludeAttachments(e.target.checked)}
-            disabled={attachmentsOnly}
-            style={{ width: 18, height: 18, accentColor: '#10b981', cursor: attachmentsOnly ? 'not-allowed' : 'pointer' }}
-          />
-          <label htmlFor="opt-include-attachments" style={toggleLabel}>
-            <div style={toggleName}>📁 Include Attachments</div>
-            <div style={toggleDesc}>
-              Process and upload attachment blobs (disable for faster text-only ingestion)
-              {attachmentsOnly && <span style={{ color: '#8b5cf6', marginLeft: 8 }}>— always on in attachments-only mode</span>}
-            </div>
-          </label>
-        </div>
-
-        {/* Dry run notice */}
-        {dryRun && (
-          <div
-            style={{
-              marginTop: 12,
-              padding: '8px 12px',
-              borderRadius: 6,
-              background: '#422006',
-              border: '1px solid #f59e0b33',
-              color: '#fbbf24',
-              fontSize: 12,
-            }}
-          >
-            🧪 <strong>Dry run mode:</strong> No data will be written. All operations will be logged and counted only.
-          </div>
-        )}
+        <BackfillOptions
+          value={backfillConfig}
+          onChange={setBackfillConfig}
+          disabled={isRunning}
+        />
       </div>
 
       {/* Controls Card */}
       <div className="card" style={{ marginBottom: 20 }}>
         <h3 style={{ margin: '0 0 12px' }}>Controls</h3>
-        <p style={{ margin: '0 0 12px', color: '#94a3b8', fontSize: 12 }}>
-          {buildOptionsSummary(currentOptions)}
-        </p>
         <button
           onClick={handleStart}
           disabled={starting || isRunning}
@@ -315,7 +185,7 @@ export default function OpenClawBackfill() {
             border: 'none',
             fontWeight: 600,
             cursor: starting || isRunning ? 'not-allowed' : 'pointer',
-            background: starting || isRunning ? '#333' : dryRun ? '#92400e' : '#3b82f6',
+            background: starting || isRunning ? '#333' : backfillConfig.dryRun ? '#92400e' : '#3b82f6',
             color: '#fff',
             fontSize: 14,
           }}
@@ -324,7 +194,7 @@ export default function OpenClawBackfill() {
             ? '⏳ Starting...'
             : isRunning
               ? '⟳ Backfill Running...'
-              : buildButtonLabel(currentOptions)}
+              : '▶ Start Full Backfill'}
         </button>
         <button
           onClick={() => { setLoading(true); fetchStatus(); }}
@@ -376,22 +246,6 @@ export default function OpenClawBackfill() {
             )}
           </h3>
 
-          {/* Options used (shown when running or complete) */}
-          {(isRunning || isComplete) && status.options && Object.keys(status.options).length > 0 && (
-            <div style={{
-              marginBottom: 16,
-              padding: '8px 12px',
-              borderRadius: 6,
-              background: '#0f172a',
-              border: '1px solid #1e293b',
-              color: '#94a3b8',
-              fontSize: 12,
-            }}>
-              <strong style={{ color: '#e2e8f0' }}>Options used: </strong>
-              {buildOptionsSummary(status.options)}
-            </div>
-          )}
-
           <div
             style={{
               display: 'grid',
@@ -399,153 +253,38 @@ export default function OpenClawBackfill() {
               gap: 12,
             }}
           >
-            <div
-              style={{
-                background: '#0d1f3c',
-                padding: 14,
-                borderRadius: 6,
-                textAlign: 'center',
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 11,
-                  color: '#888',
-                  textTransform: 'uppercase',
-                  marginBottom: 4,
-                }}
-              >
-                Processed
-              </div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#eee' }}>
-                {status.processed.toLocaleString()}
-              </div>
+            <div style={{ background: '#0d1f3c', padding: 14, borderRadius: 6, textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', marginBottom: 4 }}>Processed</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#eee' }}>{status.processed.toLocaleString()}</div>
             </div>
             {(status.skipped != null && status.skipped > 0) && (
-              <div
-                style={{
-                  background: '#0d1f3c',
-                  padding: 14,
-                  borderRadius: 6,
-                  textAlign: 'center',
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: '#888',
-                    textTransform: 'uppercase',
-                    marginBottom: 4,
-                  }}
-                >
-                  Skipped
-                </div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: '#f59e0b' }}>
-                  {status.skipped.toLocaleString()}
-                </div>
+              <div style={{ background: '#0d1f3c', padding: 14, borderRadius: 6, textAlign: 'center' }}>
+                <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', marginBottom: 4 }}>Skipped</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#f59e0b' }}>{status.skipped.toLocaleString()}</div>
               </div>
             )}
-            <div
-              style={{
-                background: '#0d1f3c',
-                padding: 14,
-                borderRadius: 6,
-                textAlign: 'center',
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 11,
-                  color: '#888',
-                  textTransform: 'uppercase',
-                  marginBottom: 4,
-                }}
-              >
-                Errors
-              </div>
-              <div
-                style={{
-                  fontSize: 24,
-                  fontWeight: 700,
-                  color: status.errors > 0 ? '#f44336' : '#eee',
-                }}
-              >
-                {status.errors}
-              </div>
+            <div style={{ background: '#0d1f3c', padding: 14, borderRadius: 6, textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', marginBottom: 4 }}>Errors</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: status.errors > 0 ? '#f44336' : '#eee' }}>{status.errors}</div>
             </div>
-            <div
-              style={{
-                background: '#0d1f3c',
-                padding: 14,
-                borderRadius: 6,
-                textAlign: 'center',
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 11,
-                  color: '#888',
-                  textTransform: 'uppercase',
-                  marginBottom: 4,
-                }}
-              >
-                Duration
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#eee' }}>
-                {durationStr}
-              </div>
+            <div style={{ background: '#0d1f3c', padding: 14, borderRadius: 6, textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', marginBottom: 4 }}>Duration</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#eee' }}>{durationStr}</div>
             </div>
-            <div
-              style={{
-                background: '#0d1f3c',
-                padding: 14,
-                borderRadius: 6,
-                textAlign: 'center',
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 11,
-                  color: '#888',
-                  textTransform: 'uppercase',
-                  marginBottom: 4,
-                }}
-              >
-                Started At
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#ccc' }}>
-                {formatISO(status.startedAt)}
-              </div>
+            <div style={{ background: '#0d1f3c', padding: 14, borderRadius: 6, textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', marginBottom: 4 }}>Started At</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#ccc' }}>{formatISO(status.startedAt)}</div>
             </div>
             {status.completedAt && (
-              <div
-                style={{
-                  background: '#0d1f3c',
-                  padding: 14,
-                  borderRadius: 6,
-                  textAlign: 'center',
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: '#888',
-                    textTransform: 'uppercase',
-                    marginBottom: 4,
-                  }}
-                >
-                  Completed At
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#ccc' }}>
-                  {formatISO(status.completedAt)}
-                </div>
+              <div style={{ background: '#0d1f3c', padding: 14, borderRadius: 6, textAlign: 'center' }}>
+                <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', marginBottom: 4 }}>Completed At</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#ccc' }}>{formatISO(status.completedAt)}</div>
               </div>
             )}
           </div>
         </div>
       ) : null}
 
-      {/* Pulse animation for the running indicator */}
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
