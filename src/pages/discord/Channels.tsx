@@ -664,16 +664,44 @@ export default function DiscordChannels() {
 
   const renderSection = (title: string, channels: MergedChannel[], count?: number) => {
     const isCollapsed = collapsed[title] !== false; // default collapsed unless explicitly expanded
+    const sectionIds = channels.map(ch => ch.id);
+    const sectionSelectedCount = sectionIds.filter(id => selectedIds.has(id)).length;
+    const sectionAllSelected = sectionIds.length > 0 && sectionSelectedCount === sectionIds.length;
+    const sectionSomeSelected = sectionSelectedCount > 0 && !sectionAllSelected;
+    const toggleSection = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        if (sectionAllSelected) {
+          sectionIds.forEach(id => next.delete(id));
+        } else {
+          sectionIds.forEach(id => next.add(id));
+        }
+        return next;
+      });
+    };
     return (
       <div key={title} className="card" style={{ marginBottom: 12 }}>
         <div
           onClick={() => toggleCollapse(title)}
           style={{ cursor: 'pointer', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
         >
-          <span style={{ fontWeight: 600, fontSize: 15 }}>
+          <span style={{ fontWeight: 600, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={sectionAllSelected}
+              ref={el => { if (el) el.indeterminate = sectionSomeSelected; }}
+              onChange={() => {}}
+              onClick={toggleSection}
+              style={{ cursor: 'pointer' }}
+              title={sectionAllSelected ? `Deselect all ${sectionIds.length} channels` : `Select all ${sectionIds.length} channels`}
+            />
             {isCollapsed ? '▸' : '▾'} {title}
           </span>
-          <span style={{ color: '#888', fontSize: 13 }}>{count ?? channels.length} channels</span>
+          <span style={{ color: '#888', fontSize: 13 }}>
+            {sectionSelectedCount > 0 && <span style={{ color: '#4a9eff', marginRight: 8 }}>{sectionSelectedCount} selected</span>}
+            {count ?? channels.length} channels
+          </span>
         </div>
         {!isCollapsed && (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
