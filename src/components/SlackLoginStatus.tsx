@@ -16,6 +16,24 @@ export default function SlackLoginStatus() {
       const res = await fetch('/proxy/slack-ingestor/api/login/status');
       if (res.ok) {
         const data = await res.json();
+        // If login flow says not logged in, check if the API session/token is actually valid
+        if (data.status !== 'logged_in' && !data.hasSavedSession) {
+          try {
+            const sessionRes = await fetch('/proxy/slack-ingestor/api/session/check');
+            if (sessionRes.ok) {
+              const sessionData = await sessionRes.json();
+              if (sessionData.authenticated) {
+                setStatus({
+                  status: 'logged_in',
+                  hasSavedSession: true,
+                  username: sessionData.user || sessionData.username,
+                  teamName: sessionData.team || sessionData.teamName,
+                });
+                return;
+              }
+            }
+          } catch {}
+        }
         setStatus(data);
       }
     } catch {
