@@ -119,7 +119,7 @@ const DISCOVER_FN: Record<string, () => Promise<DiscoveredChannel[]>> = {
 };
 
 /* ── Visible channel limit for large lists ───────────── */
-const RENDER_LIMIT = 200;
+const RENDER_LIMIT = Infinity;
 
 /* ── Inline button styles ────────────────────────────── */
 
