@@ -41,12 +41,13 @@ interface SyncRun {
 
 interface UnifiedJob {
   id: string;
-  type: 'Backfill' | 'Sync';
+  type: 'Backfill' | 'Sync' | 'Queued';
   channelId?: string;
   channelName: string;
   status: string;
   startedAt: string;
   completedAt?: string;
+  queuedAt?: string;
   duration: string;
   messages: number;
   errors: number;
@@ -94,6 +95,7 @@ function typeBadge(type: string) {
   const colors: Record<string, { bg: string; fg: string }> = {
     Backfill: { bg: '#1e3a5f', fg: '#60a5fa' },
     Sync: { bg: '#14532d', fg: '#4ade80' },
+    Queued: { bg: '#78350f', fg: '#fbbf24' },
   };
   const c = colors[type] || { bg: '#374151', fg: '#9ca3af' };
   return (
@@ -164,9 +166,10 @@ export default function SlackJobs() {
     try {
       const cl = chList || channels;
 
-      const [backfillRes, syncRes] = await Promise.allSettled([
+      const [backfillRes, syncRes, queueRes] = await Promise.allSettled([
         slackApi<any>('/api/backfill/runs?limit=50'),
         slackApi<any>('/api/runs?limit=50'),
+        slackApi<any>('/api/backfill/queue'),
       ]);
 
       const backfillRuns: BackfillRun[] = backfillRes.status === 'fulfilled'
@@ -177,15 +180,34 @@ export default function SlackJobs() {
         ? (Array.isArray(syncRes.value) ? syncRes.value : syncRes.value?.runs || [])
         : [];
 
+      const queueItems: any[] = queueRes.status === 'fulfilled'
+        ? (Array.isArray(queueRes.value) ? queueRes.value : queueRes.value?.queue || [])
+        : [];
+
       const allBackfill = backfillRuns.map(r => normalizeBackfill(r, cl));
       const allSync = syncRuns.map(r => normalizeSyncRun(r, cl));
+      const queueJobs: UnifiedJob[] = queueItems.map((q: any) => ({
+        id: q.id || q.channelId || String(Math.random()),
+        type: 'Queued' as const,
+        channelId: q.channelId,
+        channelName: resolveChannel(q.channelId, cl),
+        status: 'queued',
+        queuedAt: q.queuedAt || q.createdAt,
+        startedAt: q.queuedAt || q.createdAt || new Date().toISOString(),
+        duration: q.queuedAt ? durationStr(q.queuedAt) : '—',
+        messages: 0,
+        errors: 0,
+        canCancel: true,
+        canPause: false,
+        raw: q,
+      }));
 
       const activeStatuses = ['running', 'paused', 'in_progress', 'queued', 'pending'];
-      const active = [...allBackfill, ...allSync]
+      const active = [...allBackfill, ...allSync, ...queueJobs]
         .filter(j => activeStatuses.includes(j.status?.toLowerCase()))
         .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
 
-      const recent = [...allBackfill, ...allSync]
+      const recent = [...allBackfill, ...allSync, ...queueJobs]
         .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
         .slice(0, 50);
 
@@ -222,7 +244,9 @@ export default function SlackJobs() {
 
   const handleCancel = async (job: UnifiedJob) => {
     try {
-      if (job.type === 'Backfill') {
+      if (job.type === 'Queued') {
+        await slackApi(`/api/backfill/queue/${job.id}`, { method: 'DELETE' });
+      } else if (job.type === 'Backfill') {
         await slackApi(`/api/backfill/pause`, { method: 'POST', body: JSON.stringify({ runId: job.id }) });
       }
       await fetchData();
@@ -258,7 +282,7 @@ export default function SlackJobs() {
     <div style={{ padding: 24, maxWidth: 1200 }}>
       <h1 style={{ margin: '0 0 8px', fontSize: 24 }}>📋 Slack Jobs</h1>
       <p style={{ color: '#9ca3af', margin: '0 0 24px', fontSize: 14 }}>
-        All active and recent Slack ingestor jobs — backfill runs and scheduled syncs.
+        All active, queued, and recent Slack ingestor jobs — backfill runs, queued items, and scheduled syncs.
       </p>
 
       {error && (
@@ -327,6 +351,7 @@ export default function SlackJobs() {
                 <th style={{ padding: '8px 12px' }}>Type</th>
                 <th style={{ padding: '8px 12px' }}>Channel</th>
                 <th style={{ padding: '8px 12px' }}>Status</th>
+                <th style={{ padding: '8px 12px' }}>Queued</th>
                 <th style={{ padding: '8px 12px' }}>Started</th>
                 <th style={{ padding: '8px 12px' }}>Duration</th>
                 <th style={{ padding: '8px 12px' }}>Messages</th>
@@ -336,13 +361,14 @@ export default function SlackJobs() {
             </thead>
             <tbody>
               {recentJobs.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>No recent jobs</td></tr>
+                <tr><td colSpan={9} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>No recent jobs</td></tr>
               ) : (
                 recentJobs.map(job => (
                   <tr key={`${job.type}-${job.id}`} style={{ borderBottom: '1px solid #1f2937' }}>
                     <td style={{ padding: '8px 12px' }}>{typeBadge(job.type)}</td>
                     <td style={{ padding: '8px 12px' }}>{job.channelName}</td>
                     <td style={{ padding: '8px 12px', color: statusColor(job.status), fontWeight: 600 }}>{job.status}</td>
+                    <td style={{ padding: '8px 12px', color: '#9ca3af' }}>{job.queuedAt ? relativeTime(job.queuedAt) : '—'}</td>
                     <td style={{ padding: '8px 12px', color: '#9ca3af' }}>{relativeTime(job.startedAt)}</td>
                     <td style={{ padding: '8px 12px', color: '#9ca3af' }}>{job.completedAt ? durationStr(job.startedAt, job.completedAt) : (job.status === 'running' ? durationStr(job.startedAt, new Date().toISOString()) : '—')}</td>
                     <td style={{ padding: '8px 12px' }}>{job.messages || '—'}</td>

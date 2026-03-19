@@ -36,6 +36,7 @@ import OpenClawBackfill from './pages/openclaw/Backfill';
 import IMessageConversations from './pages/imessage/Conversations';
 import Tokens from './pages/Tokens';
 import Settings from './pages/Settings';
+import Subscriptions from './pages/Subscriptions';
 import { getServiceConfig, checkHealth, ServiceConfig } from './api';
 
 interface SidebarSection {
@@ -55,6 +56,7 @@ const sections: SidebarSection[] = [
       { to: '/memory/sources', icon: '📡', label: 'Sources' },
       { to: '/memory/people', icon: '👤', label: 'People' },
       { to: '/memory/attachments', icon: '📎', label: 'Attachments' },
+      { to: '/memory/subscriptions', icon: '📋', label: 'Subscriptions' },
       { to: '/memory/tokens', icon: '🔑', label: 'Tokens' },
       { to: '/memory/settings', icon: '⚙️', label: 'Settings' },
     ],
@@ -214,6 +216,7 @@ export default function App() {
           <Route path="/memory/sources" element={<Sources />} />
           <Route path="/memory/people" element={<People />} />
           <Route path="/memory/attachments" element={<Attachments />} />
+          <Route path="/memory/subscriptions" element={<Subscriptions />} />
           <Route path="/memory/tokens" element={<Tokens />} />
           <Route path="/memory/settings" element={<Settings />} />
           {/* Discord Ingestor */}

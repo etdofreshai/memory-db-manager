@@ -35,6 +35,30 @@ export function openclawApi<T = any>(path: string, init?: RequestInit): Promise<
   return apiFetch<T>(`/proxy/openclaw-ingestor${path}`, init);
 }
 
+// Subscription API helpers
+export function getSubscriptions(service?: string): Promise<{ subscriptions: Array<Record<string, unknown>> }> {
+  const path = service ? `/api/subscriptions/${service}` : '/api/subscriptions';
+  return apiFetch(path);
+}
+
+export function saveSubscriptions(service: string, items: Array<Record<string, unknown>>): Promise<{ subscriptions: Array<Record<string, unknown>>; count: number }> {
+  return apiFetch(`/api/subscriptions/${service}`, {
+    method: 'PUT',
+    body: JSON.stringify(items),
+  });
+}
+
+export function toggleSubscription(service: string, channelId: string, body?: Record<string, unknown>): Promise<{ subscription: Record<string, unknown> }> {
+  return apiFetch(`/api/subscriptions/${service}/${encodeURIComponent(channelId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body || {}),
+  });
+}
+
+export function getSyncStatus(service: string): Promise<{ service: string; syncStatus: Array<Record<string, unknown>> }> {
+  return apiFetch(`/api/subscriptions/${service}/sync-status`);
+}
+
 export interface ServiceConfig {
   [name: string]: { configured: boolean };
 }
