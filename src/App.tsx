@@ -1,29 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
+
+// Memory DB pages
 import Messages from './pages/Messages';
 import Cleanup from './pages/Cleanup';
 import Sources from './pages/Sources';
 import People from './pages/People';
 import Attachments from './pages/Attachments';
+import Tokens from './pages/Tokens';
+import Settings from './pages/Settings';
+
+// Custom service pages (existing, service-specific implementations)
 import DiscordDashboard from './pages/discord/Dashboard';
 import DiscordChannels from './pages/discord/Channels';
 import DiscordBackfill from './pages/discord/Backfill';
 import DiscordScheduled from './pages/discord/Scheduled';
 import DiscordJobs from './pages/discord/Jobs';
-import IngestorPlaceholder from './pages/IngestorPlaceholder';
-import DiscordLoginStatus from './components/DiscordLoginStatus';
-import SlackLoginStatus from './components/SlackLoginStatus';
 import SlackDashboard from './pages/slack/Dashboard';
 import SlackChannels from './pages/slack/Channels';
 import SlackJobs from './pages/slack/Jobs';
 import SlackBackfill from './pages/slack/Backfill';
 import SlackScheduled from './pages/slack/Scheduled';
-import ChatGPTLoginStatus from './components/ChatGPTLoginStatus';
-import GmailDashboard from './pages/gmail/Dashboard';
-import GmailMailboxes from './pages/gmail/Mailboxes';
-import GmailEmailList from './pages/gmail/EmailList';
-import GmailEmailView from './pages/gmail/EmailView';
-import GmailStatus from './pages/gmail/GmailStatus';
 import ChatGPTDashboard from './pages/chatgpt/Dashboard';
 import ChatGPTLive from './pages/chatgpt/Live';
 import ChatGPTConversations from './pages/chatgpt/Conversations';
@@ -34,89 +31,94 @@ import OpenClawLiveSessions from './pages/openclaw/LiveSessions';
 import OpenClawMemorySessions from './pages/openclaw/MemorySessions';
 import OpenClawBackfill from './pages/openclaw/Backfill';
 import IMessageConversations from './pages/imessage/Conversations';
-import Tokens from './pages/Tokens';
-import Settings from './pages/Settings';
-import Subscriptions from './pages/Subscriptions';
+import GmailDashboard from './pages/gmail/Dashboard';
+import GmailMailboxes from './pages/gmail/Mailboxes';
+import GmailEmailList from './pages/gmail/EmailList';
+import GmailEmailView from './pages/gmail/EmailView';
+
+// Unified reusable components
+import ServiceStatus from './components/ServiceStatus';
+import ServiceSubscriptions from './components/ServiceSubscriptions';
+import ServiceMessages from './components/ServiceMessages';
+import ServiceDiscovery from './components/ServiceDiscovery';
+import ServiceDashboard from './components/ServiceDashboard';
+import ServiceJobs from './components/ServiceJobs';
+import ServiceBackfill from './components/ServiceBackfill';
+
 import { getServiceConfig, checkHealth, ServiceConfig } from './api';
+
+/* ── Service definitions ────────────────────────────────── */
+
+interface ServiceDef {
+  id: string;         // route prefix, e.g. 'discord'
+  icon: string;
+  label: string;
+  serviceKey: string;  // backend service name for health checks
+  sourceName: string;  // source name in memory DB
+}
+
+const SERVICES: ServiceDef[] = [
+  { id: 'discord',   icon: '👾', label: 'Discord',   serviceKey: 'discord-ingestor',   sourceName: 'discord' },
+  { id: 'gmail',     icon: '📨', label: 'Gmail',     serviceKey: 'gmail-ingestor',     sourceName: 'email' },
+  { id: 'slack',     icon: '#️⃣', label: 'Slack',     serviceKey: 'slack-ingestor',     sourceName: 'slack' },
+  { id: 'anthropic', icon: '✳️', label: 'Anthropic', serviceKey: 'anthropic-ingestor', sourceName: 'anthropic' },
+  { id: 'chatgpt',   icon: '🌐', label: 'ChatGPT',  serviceKey: 'chatgpt-ingestor',   sourceName: 'chatgpt' },
+  { id: 'openclaw',  icon: '🦞', label: 'OpenClaw',  serviceKey: 'openclaw-ingestor',  sourceName: 'openclaw' },
+  { id: 'imessage',  icon: '💬', label: 'iMessage',  serviceKey: '',                   sourceName: 'imessage' },
+];
+
+/* ── Sidebar section type ───────────────────────────────── */
 
 interface SidebarSection {
   key: string;
   icon: string;
   label: string;
-  serviceKey?: string; // for health checks
+  serviceKey?: string;
   items: { to: string; icon: string; label: string }[];
+}
+
+/* ── Build sidebar sections ─────────────────────────────── */
+
+const STANDARD_PAGES = [
+  { suffix: 'dashboard',     icon: '📊', label: 'Dashboard' },
+  { suffix: 'subscriptions', icon: '📋', label: 'Subscriptions' },
+  { suffix: 'discovery',     icon: '🔍', label: 'Discovery' },
+  { suffix: 'messages',      icon: '✉️', label: 'Messages' },
+  { suffix: 'jobs',          icon: '📋', label: 'Jobs' },
+  { suffix: 'backfill',      icon: '⏪', label: 'Backfill' },
+];
+
+function buildServiceSection(svc: ServiceDef): SidebarSection {
+  return {
+    key: svc.id,
+    icon: svc.icon,
+    label: svc.serviceKey ? `${svc.label} Ingestor` : svc.label,
+    serviceKey: svc.serviceKey || undefined,
+    items: STANDARD_PAGES.map(p => ({
+      to: `/${svc.id}/${p.suffix}`,
+      icon: p.icon,
+      label: p.label,
+    })),
+  };
 }
 
 const sections: SidebarSection[] = [
   {
     key: 'memory-db', icon: '🗄️', label: 'Memory DB', serviceKey: 'memory-api',
     items: [
-      { to: '/memory/messages', icon: '✉️', label: 'Messages' },
-      { to: '/memory/cleanup', icon: '🧹', label: 'Cleanup' },
-      { to: '/memory/sources', icon: '📡', label: 'Sources' },
-      { to: '/memory/people', icon: '👤', label: 'People' },
+      { to: '/memory/messages',    icon: '✉️', label: 'Messages' },
+      { to: '/memory/cleanup',     icon: '🧹', label: 'Cleanup' },
+      { to: '/memory/sources',     icon: '📡', label: 'Sources' },
+      { to: '/memory/people',      icon: '👤', label: 'People' },
       { to: '/memory/attachments', icon: '📎', label: 'Attachments' },
-      { to: '/memory/subscriptions', icon: '📋', label: 'Subscriptions' },
-      { to: '/memory/tokens', icon: '🔑', label: 'Tokens' },
-      { to: '/memory/settings', icon: '⚙️', label: 'Settings' },
+      { to: '/memory/tokens',      icon: '🔑', label: 'Tokens' },
+      { to: '/memory/settings',    icon: '⚙️', label: 'Settings' },
     ],
   },
-  {
-    key: 'discord', icon: '👾', label: 'Discord Ingestor', serviceKey: 'discord-ingestor',
-    items: [
-      { to: '/discord/dashboard', icon: '📊', label: 'Dashboard' },
-      { to: '/discord/jobs', icon: '📋', label: 'Jobs' },
-      { to: '/discord/channels', icon: '📺', label: 'Channels' },
-      { to: '/discord/backfill', icon: '⏪', label: 'Backfill' },
-      { to: '/discord/scheduled', icon: '⏰', label: 'Scheduled' },
-    ],
-  },
-  {
-    key: 'gmail', icon: '📨', label: 'Gmail Ingestor', serviceKey: 'gmail-ingestor',
-    items: [
-      { to: '/gmail/dashboard', icon: '📊', label: 'Dashboard' },
-      { to: '/gmail/mailboxes', icon: '📬', label: 'Mailboxes' },
-    ],
-  },
-  {
-    key: 'slack', icon: '#️⃣', label: 'Slack Ingestor', serviceKey: 'slack-ingestor',
-    items: [
-      { to: '/slack/dashboard', icon: '📊', label: 'Dashboard' },
-      { to: '/slack/channels', icon: '📺', label: 'Channels' },
-      { to: '/slack/jobs', icon: '📋', label: 'Jobs' },
-      { to: '/slack/backfill', icon: '⏪', label: 'Backfill' },
-      { to: '/slack/scheduled', icon: '⏰', label: 'Scheduled' },
-    ],
-  },
-  {
-    key: 'anthropic', icon: '✳️', label: 'Anthropic Ingestor', serviceKey: 'anthropic-ingestor',
-    items: [{ to: '/anthropic/dashboard', icon: '📊', label: 'Dashboard' }],
-  },
-  {
-    key: 'chatgpt', icon: '🌐', label: 'ChatGPT Ingestor', serviceKey: 'chatgpt-ingestor',
-    items: [
-      { to: '/chatgpt/dashboard', icon: '📊', label: 'Dashboard' },
-      { to: '/chatgpt/live', icon: '🔴', label: 'Live' },
-      { to: '/chatgpt/conversations', icon: '💬', label: 'Conversations' },
-      { to: '/chatgpt/jobs', icon: '📋', label: 'Jobs' },
-    ],
-  },
-  {
-    key: 'openclaw', icon: '🦞', label: 'OpenClaw Ingestor', serviceKey: 'openclaw-ingestor',
-    items: [
-      { to: '/openclaw/dashboard', icon: '📊', label: 'Dashboard' },
-      { to: '/openclaw/live-sessions', icon: '🔴', label: 'Live Sessions' },
-      { to: '/openclaw/memory-sessions', icon: '🗄️', label: 'Memory Sessions' },
-      { to: '/openclaw/backfill', icon: '⏪', label: 'Backfill' },
-    ],
-  },
-  {
-    key: 'imessage', icon: '💬', label: 'iMessage',
-    items: [
-      { to: '/imessage/conversations', icon: '💬', label: 'Conversations' },
-    ],
-  },
+  ...SERVICES.map(buildServiceSection),
 ];
+
+/* ── Collapsed state persistence ────────────────────────── */
 
 function loadCollapsed(): Record<string, boolean> {
   const defaults: Record<string, boolean> = Object.fromEntries(sections.map(s => [s.key, true]));
@@ -125,6 +127,8 @@ function loadCollapsed(): Record<string, boolean> {
     return { ...defaults, ...saved };
   } catch { return defaults; }
 }
+
+/* ── App ────────────────────────────────────────────────── */
 
 export default function App() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed);
@@ -138,7 +142,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Run health checks for configured services
     for (const section of sections) {
       if (section.serviceKey && serviceConfig[section.serviceKey]?.configured) {
         checkHealth(section.serviceKey).then(ok => {
@@ -148,7 +151,6 @@ export default function App() {
     }
   }, [serviceConfig]);
 
-  // Close mobile sidebar on navigation
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
 
   const toggle = useCallback((key: string) => {
@@ -181,75 +183,122 @@ export default function App() {
           )}
         </div>
         <div className="sidebar-nav">
-          {sections.map(section => (
-            <div key={section.key} className="sidebar-section">
-              <button className="section-header" onClick={() => toggle(section.key)}>
-                <span className="section-icon">{section.icon}</span>
-                <span className="section-label">{section.label}</span>
-                {getStatusDot(section.serviceKey)}
-                <span className={`chevron ${collapsed[section.key] ? 'collapsed' : ''}`}>▾</span>
-              </button>
-              {!collapsed[section.key] && (
-                <div className="section-items">
-                  {section.key === 'discord' && <DiscordLoginStatus />}
-                  {section.key === 'slack' && <SlackLoginStatus />}
-                  {section.key === 'chatgpt' && <ChatGPTLoginStatus />}
-                  {section.key === 'gmail' && <GmailStatus />}
-                  {section.items.map(item => (
-                    <NavLink key={item.to} to={item.to} className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                      <span>{item.icon}</span>
-                      <span>{item.label}</span>
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+          {sections.map(section => {
+            const svcDef = SERVICES.find(s => s.id === section.key);
+            return (
+              <div key={section.key} className="sidebar-section">
+                <button className="section-header" onClick={() => toggle(section.key)}>
+                  <span className="section-icon">{section.icon}</span>
+                  <span className="section-label">{section.label}</span>
+                  {getStatusDot(section.serviceKey)}
+                  <span className={`chevron ${collapsed[section.key] ? 'collapsed' : ''}`}>▾</span>
+                </button>
+                {!collapsed[section.key] && (
+                  <div className="section-items">
+                    {svcDef && svcDef.serviceKey && (
+                      <ServiceStatus serviceKey={svcDef.serviceKey} serviceId={svcDef.id} />
+                    )}
+                    {section.items.map(item => (
+                      <NavLink key={item.to} to={item.to} className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+                        <span>{item.icon}</span>
+                        <span>{item.label}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </nav>
       {mobileOpen && <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />}
       <main className="main-content">
         <Routes>
-          {/* Memory DB */}
+          {/* ── Memory DB ─────────────────────────────────── */}
           <Route path="/memory/messages" element={<Messages />} />
           <Route path="/memory/cleanup" element={<Cleanup />} />
           <Route path="/memory/sources" element={<Sources />} />
           <Route path="/memory/people" element={<People />} />
           <Route path="/memory/attachments" element={<Attachments />} />
-          <Route path="/memory/subscriptions" element={<Subscriptions />} />
           <Route path="/memory/tokens" element={<Tokens />} />
           <Route path="/memory/settings" element={<Settings />} />
-          {/* Discord Ingestor */}
+
+          {/* ── Discord ───────────────────────────────────── */}
           <Route path="/discord/dashboard" element={<DiscordDashboard />} />
+          <Route path="/discord/subscriptions" element={<ServiceSubscriptions service="discord" serviceLabel="Discord" serviceIcon="👾" />} />
+          <Route path="/discord/discovery" element={<ServiceDiscovery service="discord" serviceLabel="Discord" serviceIcon="👾" serviceKey="discord-ingestor" />} />
+          <Route path="/discord/messages" element={<ServiceMessages source="discord" serviceLabel="Discord" serviceIcon="👾" />} />
           <Route path="/discord/jobs" element={<DiscordJobs />} />
-          <Route path="/discord/channels" element={<DiscordChannels />} />
           <Route path="/discord/backfill" element={<DiscordBackfill />} />
+          {/* Legacy Discord routes */}
+          <Route path="/discord/channels" element={<DiscordChannels />} />
           <Route path="/discord/scheduled" element={<DiscordScheduled />} />
-          {/* Gmail Ingestor */}
+
+          {/* ── Gmail ─────────────────────────────────────── */}
           <Route path="/gmail/dashboard" element={<GmailDashboard />} />
+          <Route path="/gmail/subscriptions" element={<ServiceSubscriptions service="gmail" serviceLabel="Gmail" serviceIcon="📨" />} />
+          <Route path="/gmail/discovery" element={<ServiceDiscovery service="gmail" serviceLabel="Gmail" serviceIcon="📨" serviceKey="gmail-ingestor" />} />
+          <Route path="/gmail/messages" element={<ServiceMessages source="email" serviceLabel="Gmail" serviceIcon="📨" />} />
+          <Route path="/gmail/jobs" element={<ServiceJobs service="gmail" serviceLabel="Gmail" serviceIcon="📨" serviceKey="gmail-ingestor" />} />
+          <Route path="/gmail/backfill" element={<ServiceBackfill service="gmail" serviceLabel="Gmail" serviceIcon="📨" serviceKey="gmail-ingestor" />} />
+          {/* Legacy Gmail routes */}
           <Route path="/gmail/mailboxes" element={<GmailMailboxes />} />
           <Route path="/gmail/mailbox/:mailbox" element={<GmailEmailList />} />
           <Route path="/gmail/email/:uid" element={<GmailEmailView />} />
+
+          {/* ── Slack ─────────────────────────────────────── */}
           <Route path="/slack/dashboard" element={<SlackDashboard />} />
-          <Route path="/slack/channels" element={<SlackChannels />} />
+          <Route path="/slack/subscriptions" element={<ServiceSubscriptions service="slack" serviceLabel="Slack" serviceIcon="#️⃣" />} />
+          <Route path="/slack/discovery" element={<ServiceDiscovery service="slack" serviceLabel="Slack" serviceIcon="#️⃣" serviceKey="slack-ingestor" />} />
+          <Route path="/slack/messages" element={<ServiceMessages source="slack" serviceLabel="Slack" serviceIcon="#️⃣" />} />
           <Route path="/slack/jobs" element={<SlackJobs />} />
           <Route path="/slack/backfill" element={<SlackBackfill />} />
+          {/* Legacy Slack routes */}
+          <Route path="/slack/channels" element={<SlackChannels />} />
           <Route path="/slack/scheduled" element={<SlackScheduled />} />
-          <Route path="/anthropic/dashboard" element={<IngestorPlaceholder name="Anthropic Ingestor" icon="✳️" serviceKey="anthropic-ingestor" />} />
-          {/* ChatGPT Ingestor */}
+
+          {/* ── Anthropic ─────────────────────────────────── */}
+          <Route path="/anthropic/dashboard" element={<ServiceDashboard service="anthropic" serviceLabel="Anthropic" serviceIcon="✳️" serviceKey="anthropic-ingestor" sourceName="anthropic" />} />
+          <Route path="/anthropic/subscriptions" element={<ServiceSubscriptions service="anthropic" serviceLabel="Anthropic" serviceIcon="✳️" />} />
+          <Route path="/anthropic/discovery" element={<ServiceDiscovery service="anthropic" serviceLabel="Anthropic" serviceIcon="✳️" serviceKey="anthropic-ingestor" />} />
+          <Route path="/anthropic/messages" element={<ServiceMessages source="anthropic" serviceLabel="Anthropic" serviceIcon="✳️" />} />
+          <Route path="/anthropic/jobs" element={<ServiceJobs service="anthropic" serviceLabel="Anthropic" serviceIcon="✳️" serviceKey="anthropic-ingestor" />} />
+          <Route path="/anthropic/backfill" element={<ServiceBackfill service="anthropic" serviceLabel="Anthropic" serviceIcon="✳️" serviceKey="anthropic-ingestor" />} />
+
+          {/* ── ChatGPT ───────────────────────────────────── */}
           <Route path="/chatgpt/dashboard" element={<ChatGPTDashboard />} />
+          <Route path="/chatgpt/subscriptions" element={<ServiceSubscriptions service="chatgpt" serviceLabel="ChatGPT" serviceIcon="🌐" />} />
+          <Route path="/chatgpt/discovery" element={<ServiceDiscovery service="chatgpt" serviceLabel="ChatGPT" serviceIcon="🌐" serviceKey="chatgpt-ingestor" />} />
+          <Route path="/chatgpt/messages" element={<ServiceMessages source="chatgpt" serviceLabel="ChatGPT" serviceIcon="🌐" />} />
+          <Route path="/chatgpt/jobs" element={<ChatGPTJobs />} />
+          <Route path="/chatgpt/backfill" element={<ServiceBackfill service="chatgpt" serviceLabel="ChatGPT" serviceIcon="🌐" serviceKey="chatgpt-ingestor" />} />
+          {/* Legacy ChatGPT routes */}
           <Route path="/chatgpt/live" element={<ChatGPTLive />} />
           <Route path="/chatgpt/conversations" element={<ChatGPTConversations />} />
           <Route path="/chatgpt/conversation/:id" element={<ConversationView />} />
-          <Route path="/chatgpt/jobs" element={<ChatGPTJobs />} />
-          {/* OpenClaw Ingestor */}
+
+          {/* ── OpenClaw ──────────────────────────────────── */}
           <Route path="/openclaw/dashboard" element={<OpenClawDashboard />} />
+          <Route path="/openclaw/subscriptions" element={<ServiceSubscriptions service="openclaw" serviceLabel="OpenClaw" serviceIcon="🦞" />} />
+          <Route path="/openclaw/discovery" element={<ServiceDiscovery service="openclaw" serviceLabel="OpenClaw" serviceIcon="🦞" serviceKey="openclaw-ingestor" />} />
+          <Route path="/openclaw/messages" element={<ServiceMessages source="openclaw" serviceLabel="OpenClaw" serviceIcon="🦞" />} />
+          <Route path="/openclaw/jobs" element={<ServiceJobs service="openclaw" serviceLabel="OpenClaw" serviceIcon="🦞" serviceKey="openclaw-ingestor" />} />
+          <Route path="/openclaw/backfill" element={<OpenClawBackfill />} />
+          {/* Legacy OpenClaw routes */}
           <Route path="/openclaw/live-sessions" element={<OpenClawLiveSessions />} />
           <Route path="/openclaw/memory-sessions" element={<OpenClawMemorySessions />} />
-          <Route path="/openclaw/backfill" element={<OpenClawBackfill />} />
-          {/* iMessage */}
+
+          {/* ── iMessage ──────────────────────────────────── */}
+          <Route path="/imessage/dashboard" element={<ServiceDashboard service="imessage" serviceLabel="iMessage" serviceIcon="💬" serviceKey="" sourceName="imessage" />} />
+          <Route path="/imessage/subscriptions" element={<ServiceSubscriptions service="imessage" serviceLabel="iMessage" serviceIcon="💬" />} />
+          <Route path="/imessage/discovery" element={<ServiceDiscovery service="imessage" serviceLabel="iMessage" serviceIcon="💬" serviceKey="" />} />
+          <Route path="/imessage/messages" element={<ServiceMessages source="imessage" serviceLabel="iMessage" serviceIcon="💬" />} />
+          <Route path="/imessage/jobs" element={<ServiceJobs service="imessage" serviceLabel="iMessage" serviceIcon="💬" serviceKey="" />} />
+          <Route path="/imessage/backfill" element={<ServiceBackfill service="imessage" serviceLabel="iMessage" serviceIcon="💬" serviceKey="" />} />
+          {/* Legacy iMessage routes */}
           <Route path="/imessage/conversations" element={<IMessageConversations />} />
-          {/* Default */}
+
+          {/* ── Default ───────────────────────────────────── */}
           <Route path="*" element={<Navigate to="/memory/messages" replace />} />
         </Routes>
       </main>
