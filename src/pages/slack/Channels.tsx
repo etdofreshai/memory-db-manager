@@ -32,6 +32,7 @@ interface MergedChannel {
   name: string;
   lastMessageAt: string | null;
   messageCount: number;
+  deleted?: boolean;
 }
 
 const COLLAPSE_KEY = 'slack-channels-collapse';
@@ -76,7 +77,11 @@ export default function SlackChannels() {
   const [startDateModal, setStartDateModal] = useState<MergedChannel | null>(null);
   const [startDateInput, setStartDateInput] = useState('');
   const [startDateLoading, setStartDateLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [massActionWorking, setMassActionWorking] = useState(false);
+  const [massScheduleOpen, setMassScheduleOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const massScheduleRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   const CADENCE_OPTIONS: { label: string; value: string; minutes: number }[] = [
@@ -92,15 +97,16 @@ export default function SlackChannels() {
     { label: 'Every year',     value: '1y',  minutes: 525600 },
   ];
 
-  // Close menu on outside click
+  // Close menus on outside click
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !massScheduleOpen) return;
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(null);
+      if (massScheduleRef.current && !massScheduleRef.current.contains(e.target as Node)) setMassScheduleOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [menuOpen]);
+  }, [menuOpen, massScheduleOpen]);
 
   const fetchAll = useCallback(() => {
     Promise.all([
@@ -108,7 +114,6 @@ export default function SlackChannels() {
       slackApi<Job[]>('/api/jobs'),
     ])
       .then(([chData, jobsData]) => {
-        // API returns { channels: [...] } or directly [...]
         const chList: SlackChannel[] = Array.isArray(chData) ? chData : (chData?.channels || []);
         setChannelList(chList);
         setStats({});
@@ -126,14 +131,30 @@ export default function SlackChannels() {
     return m;
   }, [jobs]);
 
+  // Merge channels from API + channels that only exist in jobs (deleted channels)
   const merged: MergedChannel[] = useMemo(() => {
-    return channelList.map(c => ({
+    const channelIds = new Set(channelList.map(c => c.id));
+    const result: MergedChannel[] = channelList.map(c => ({
       id: c.id,
       name: c.name || c.id,
       lastMessageAt: null,
       messageCount: 0,
+      deleted: false,
     }));
-  }, [channelList]);
+    // Add deleted channels (in jobs but not in channel list)
+    for (const j of jobs) {
+      if (j.channel && !channelIds.has(j.channel)) {
+        result.push({
+          id: j.channel,
+          name: j.name?.replace(/^#/, '').replace(/ every .*$/, '') || j.channel,
+          lastMessageAt: null,
+          messageCount: 0,
+          deleted: true,
+        });
+      }
+    }
+    return result;
+  }, [channelList, jobs]);
 
   const filtered = useMemo(() => {
     if (!filter) return merged;
@@ -144,13 +165,30 @@ export default function SlackChannels() {
     );
   }, [merged, filter]);
 
-  // Sort by most recent message
   const sortedChannels = useMemo(() => {
-    return [...filtered].sort((a, b) =>
-      (b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0) -
-      (a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0)
-    );
+    return [...filtered].sort((a, b) => {
+      // Deleted channels at the bottom
+      if (a.deleted && !b.deleted) return 1;
+      if (!a.deleted && b.deleted) return -1;
+      return a.name.localeCompare(b.name);
+    });
   }, [filtered]);
+
+  // Selection helpers
+  const allSelected = sortedChannels.length > 0 && sortedChannels.every(ch => selectedIds.has(ch.id));
+  const someSelected = selectedIds.size > 0;
+  const selectedCount = selectedIds.size;
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => setSelectedIds(new Set(sortedChannels.map(ch => ch.id)));
+  const deselectAll = () => setSelectedIds(new Set());
 
   const toggleCollapse = (name: string) => {
     setCollapsed(prev => {
@@ -192,6 +230,62 @@ export default function SlackChannels() {
       setError(e.message);
     } finally {
       setActionLoading(p => { const n = { ...p }; delete n[ch.id]; return n; });
+    }
+  };
+
+  // Mass schedule: create jobs for all selected channels
+  const handleMassSchedule = async (cadence: string) => {
+    setMassScheduleOpen(false);
+    setMassActionWorking(true);
+    const mins = CADENCE_OPTIONS.find(o => o.value === cadence)?.minutes ?? 1440;
+    try {
+      for (const chId of selectedIds) {
+        const ch = merged.find(c => c.id === chId);
+        if (!ch) continue;
+        const existing = jobsByChannel[chId];
+        if (existing) {
+          const jobId = existing._id || existing.id;
+          await slackApi(`/api/jobs/${jobId}`, { method: 'DELETE' });
+        }
+        await slackApi('/api/jobs', {
+          method: 'POST',
+          body: JSON.stringify({
+            channel: chId,
+            name: `#${ch.name} every ${cadence}`,
+            sincePreset: cadence,
+            cadencePreset: cadence,
+            intervalMinutes: mins,
+            enabled: true,
+          }),
+        });
+      }
+      const freshJobs = await slackApi<Job[]>('/api/jobs');
+      setJobs(Array.isArray(freshJobs) ? freshJobs : []);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setMassActionWorking(false);
+    }
+  };
+
+  // Mass backfill: trigger backfill for all selected channels
+  const handleMassBackfill = async () => {
+    setMassActionWorking(true);
+    try {
+      for (const chId of selectedIds) {
+        slackApi('/api/backfill/start', {
+          method: 'POST',
+          body: JSON.stringify({ channelId: chId }),
+        }).catch(() => {});
+      }
+      // Brief delay then refresh
+      setTimeout(() => {
+        fetchAll();
+        setMassActionWorking(false);
+      }, 1500);
+    } catch (e: any) {
+      setError(e.message);
+      setMassActionWorking(false);
     }
   };
 
@@ -272,10 +366,21 @@ export default function SlackChannels() {
       cursor: isLoading ? 'wait' : 'pointer', marginLeft: 4,
     });
     const toggleBusy = !!togglingEnabled[ch.id];
+    const isSelected = selectedIds.has(ch.id);
     return (
-      <tr key={ch.id} style={{ borderBottom: '1px solid #333' }}>
+      <tr key={ch.id} style={{ borderBottom: '1px solid #333', background: isSelected ? '#1e2a3a' : undefined }}>
+        <td style={{ padding: '6px 8px', textAlign: 'center', width: 30 }}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => toggleSelect(ch.id)}
+          />
+        </td>
         <td style={{ padding: '6px 8px' }}>
-          <strong>#{ch.name}</strong>
+          <strong style={ch.deleted ? { textDecoration: 'line-through', color: '#888' } : {}}>#{ch.name}</strong>
+          {ch.deleted && (
+            <span style={{ background: '#7f1d1d', color: '#fca5a5', fontSize: 10, padding: '1px 5px', borderRadius: 3, marginLeft: 6, fontWeight: 600 }}>deleted</span>
+          )}
           {renderBadge(ch)}
           <br />
           <code style={{ fontSize: 11, color: '#888' }}>{ch.id}</code>
@@ -412,6 +517,14 @@ export default function SlackChannels() {
     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
       <thead>
         <tr style={{ borderBottom: '1px solid #444', fontSize: 12, color: '#888' }}>
+          <th style={{ textAlign: 'center', padding: '4px 8px', width: 30 }}>
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={() => allSelected ? deselectAll() : selectAll()}
+              title="Select all"
+            />
+          </th>
           <th style={{ textAlign: 'left', padding: '4px 8px' }}>Channel</th>
           <th style={{ textAlign: 'left', padding: '4px 8px' }}>Last message</th>
           <th style={{ textAlign: 'left', padding: '4px 8px' }}>Last synced</th>
@@ -445,6 +558,60 @@ export default function SlackChannels() {
           style={{ padding: '5px 10px', background: 'none', border: '1px solid #555', borderRadius: 6, color: '#aaa', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
         >⊟ Collapse All</button>
       </div>
+
+      {/* Selection action bar */}
+      {someSelected && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '10px 14px', background: '#1e2430', border: '1px solid #3d5a80', borderRadius: 8, flexWrap: 'wrap' }}>
+          <span style={{ color: '#a0c4ff', fontSize: 13, fontWeight: 600 }}>{selectedCount} channel{selectedCount === 1 ? '' : 's'} selected</span>
+          <button onClick={selectAll} style={{ padding: '4px 10px', background: 'none', border: '1px solid #555', borderRadius: 4, color: '#aaa', cursor: 'pointer', fontSize: 12 }}>Select All</button>
+          <button onClick={deselectAll} style={{ padding: '4px 10px', background: 'none', border: '1px solid #555', borderRadius: 4, color: '#aaa', cursor: 'pointer', fontSize: 12 }}>Deselect All</button>
+          <div style={{ position: 'relative', display: 'inline-block' }} ref={massScheduleRef}>
+            <button
+              onClick={() => setMassScheduleOpen(!massScheduleOpen)}
+              disabled={massActionWorking}
+              style={{ padding: '5px 12px', background: '#1a3a1a', border: '1px solid #4ade80', borderRadius: 6, color: '#4ade80', cursor: massActionWorking ? 'wait' : 'pointer', fontSize: 12 }}
+            >
+              🕐 Mass Schedule
+            </button>
+            {massScheduleOpen && (
+              <div style={{
+                position: 'absolute', left: 0, top: '100%', marginTop: 4,
+                background: '#2f3136', border: '1px solid #555', borderRadius: 6,
+                zIndex: 60, minWidth: 160, boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+              }}>
+                {CADENCE_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => handleMassSchedule(opt.value)}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left', padding: '7px 12px',
+                      background: 'none', border: 'none', color: '#e0e0e0', cursor: 'pointer', fontSize: 13,
+                    }}
+                    onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                    onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={handleMassBackfill}
+            disabled={massActionWorking}
+            style={{ padding: '5px 12px', background: '#1a2a3a', border: '1px solid #60a5fa', borderRadius: 6, color: '#60a5fa', cursor: massActionWorking ? 'wait' : 'pointer', fontSize: 12 }}
+          >
+            ⏪ Mass Backfill
+          </button>
+          <button
+            onClick={deselectAll}
+            style={{ padding: '4px 10px', background: 'none', border: '1px solid #555', borderRadius: 4, color: '#aaa', cursor: 'pointer', fontSize: 12, marginLeft: 'auto' }}
+          >
+            ✕ Clear
+          </button>
+        </div>
+      )}
+
       {loading ? <p>Loading...</p> : (
         <div className="card" style={{ marginBottom: 12 }}>
           <div
