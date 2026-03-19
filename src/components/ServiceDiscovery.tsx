@@ -3,6 +3,7 @@ import {
   getServiceConfig,
   getSubscriptions,
   saveSubscriptions,
+  toggleSubscription,
   discordApi,
   slackApi,
   gmailApi,
@@ -120,6 +121,90 @@ const DISCOVER_FN: Record<string, () => Promise<DiscoveredChannel[]>> = {
 /* ── Visible channel limit for large lists ───────────── */
 const RENDER_LIMIT = 200;
 
+/* ── Inline button styles ────────────────────────────── */
+
+const btnBase: React.CSSProperties = {
+  padding: '4px 12px',
+  borderRadius: 999,
+  border: 'none',
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: 'pointer',
+  transition: 'all 0.15s ease',
+  whiteSpace: 'nowrap',
+  lineHeight: '20px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+};
+
+const btnSubscribed: React.CSSProperties = {
+  ...btnBase,
+  background: '#1a3a1a',
+  color: '#4ade80',
+  border: '1px solid #2d5a2d',
+};
+
+const btnNotSubscribed: React.CSSProperties = {
+  ...btnBase,
+  background: '#2a2a2a',
+  color: '#999',
+  border: '1px solid #444',
+};
+
+const btnLoading: React.CSSProperties = {
+  ...btnBase,
+  background: '#1e2430',
+  color: '#666',
+  border: '1px solid #333',
+  cursor: 'wait',
+};
+
+/* Group-level tri-state button styles */
+const grpBtnBase: React.CSSProperties = {
+  padding: '3px 10px',
+  borderRadius: 999,
+  border: 'none',
+  fontSize: 11,
+  fontWeight: 600,
+  cursor: 'pointer',
+  transition: 'all 0.15s ease',
+  whiteSpace: 'nowrap',
+  lineHeight: '18px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+};
+
+const grpBtnAll: React.CSSProperties = {
+  ...grpBtnBase,
+  background: '#1a3a1a',
+  color: '#4ade80',
+  border: '1px solid #2d5a2d',
+};
+
+const grpBtnSome: React.CSSProperties = {
+  ...grpBtnBase,
+  background: '#2a2500',
+  color: '#f59e0b',
+  border: '1px solid #5a4a00',
+};
+
+const grpBtnNone: React.CSSProperties = {
+  ...grpBtnBase,
+  background: '#2a2a2a',
+  color: '#999',
+  border: '1px solid #444',
+};
+
+const grpBtnLoading: React.CSSProperties = {
+  ...grpBtnBase,
+  background: '#1e2430',
+  color: '#666',
+  border: '1px solid #333',
+  cursor: 'wait',
+};
+
 /* ── Component ───────────────────────────────────────── */
 
 export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, serviceKey }: ServiceDiscoveryProps) {
@@ -127,11 +212,12 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
   const [error, setError] = useState('');
   const [channels, setChannels] = useState<DiscoveredChannel[]>([]);
   const [existingSubs, setExistingSubs] = useState<Map<string, Subscription>>(new Map());
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
-  const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  // Track in-flight toggles (channel IDs or group names currently being toggled)
+  const [togglingChannels, setTogglingChannels] = useState<Set<string>>(new Set());
+  const [togglingGroups, setTogglingGroups] = useState<Set<string>>(new Set());
 
   // Check if service is known to be not configured
   const notConfiguredMsg = NOT_CONFIGURED_SERVICES[service];
@@ -161,7 +247,6 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
     setStatus('loading');
     setError('');
     setChannels([]);
-    setSelectedIds(new Set());
 
     // Check not-configured first
     if (notConfiguredMsg) {
@@ -178,7 +263,6 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
           return;
         }
       } else if (!DISCOVER_FN[service]) {
-        // No serviceKey and no discover function → not configured
         setStatus('unconfigured');
         return;
       }
@@ -195,12 +279,9 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
     try {
       const discovered = await discoverFn();
       setChannels(discovered);
-      // Pre-select channels that are not yet subscribed
-      // (don't auto-select anything — let user choose)
       setStatus('done');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Discovery failed';
-      // Detect auth errors (401/403)
       if (msg.includes('401') || msg.includes('403') || msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('forbidden')) {
         setStatus('auth-error');
         setError(msg);
@@ -236,7 +317,6 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
         channels: chs.sort((a, b) => a.channel_name.localeCompare(b.channel_name)),
       }))
       .sort((a, b) => {
-        // Put "Direct Messages" / "Other" at the end
         if (a.name === 'Direct Messages' || a.name === 'Other') return 1;
         if (b.name === 'Direct Messages' || b.name === 'Other') return -1;
         return a.name.localeCompare(b.name);
@@ -245,7 +325,6 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
 
   // Count totals
   const totalFiltered = filtered.length;
-  const totalSelected = selectedIds.size;
   const totalAlreadySubscribed = useMemo(() => {
     return filtered.filter(ch => {
       const sub = existingSubs.get(ch.channel_id);
@@ -253,74 +332,66 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
     }).length;
   }, [filtered, existingSubs]);
 
-  // Selection helpers
-  const toggleSelect = (id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
+  /* ── Per-channel inline toggle ─────────────────────── */
+  const handleToggleChannel = async (ch: DiscoveredChannel) => {
+    const chId = ch.channel_id;
+    if (togglingChannels.has(chId)) return;
 
-  const selectAllInGroup = (group: ChannelGroup) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      const allSelected = group.channels.every(ch => next.has(ch.channel_id));
-      if (allSelected) {
-        group.channels.forEach(ch => next.delete(ch.channel_id));
-      } else {
-        group.channels.forEach(ch => next.add(ch.channel_id));
-      }
-      return next;
-    });
-  };
-
-  const selectAllFiltered = () => {
-    setSelectedIds(prev => {
-      const allSelected = filtered.every(ch => prev.has(ch.channel_id));
-      if (allSelected) {
-        return new Set();
-      }
-      return new Set(filtered.map(ch => ch.channel_id));
-    });
-  };
-
-  const deselectAll = () => setSelectedIds(new Set());
-
-  // Select only unsubscribed channels
-  const selectNewOnly = () => {
-    const newIds = filtered
-      .filter(ch => {
-        const sub = existingSubs.get(ch.channel_id);
-        return !sub?.subscribed;
-      })
-      .map(ch => ch.channel_id);
-    setSelectedIds(new Set(newIds));
-  };
-
-  // Subscribe selected channels
-  const handleSubscribe = async () => {
-    if (selectedIds.size === 0) return;
-    setSaving(true);
+    setTogglingChannels(prev => new Set(prev).add(chId));
     setError('');
-    setSuccessMsg('');
 
     try {
-      // Build subscription items from selected channels
-      const items = channels
-        .filter(ch => selectedIds.has(ch.channel_id))
-        .map(ch => ({
-          channel_id: ch.channel_id,
-          channel_name: ch.channel_name,
-          server_id: ch.server_id || null,
-          server_name: ch.server_name || null,
-          subscribed: true,
-          metadata: {},
-        }));
+      const result = await toggleSubscription(service, chId, {
+        channel_name: ch.channel_name,
+        server_id: ch.server_id || null,
+        server_name: ch.server_name || null,
+      });
+      // Update local state immediately from the response
+      const sub = result.subscription as Subscription;
+      setExistingSubs(prev => {
+        const next = new Map(prev);
+        next.set(sub.channel_id, sub);
+        return next;
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Toggle failed';
+      setError(msg);
+    } finally {
+      setTogglingChannels(prev => {
+        const next = new Set(prev);
+        next.delete(chId);
+        return next;
+      });
+    }
+  };
 
-      // Also include existing subscriptions that aren't being changed
-      const existingItems = Array.from(existingSubs.values())
-        .filter(sub => !selectedIds.has(sub.channel_id))
+  /* ── Per-group bulk toggle ─────────────────────────── */
+  const handleToggleGroup = async (group: ChannelGroup) => {
+    if (togglingGroups.has(group.name)) return;
+
+    const groupSubCount = group.channels.filter(ch => existingSubs.get(ch.channel_id)?.subscribed).length;
+    const allSubscribed = groupSubCount === group.channels.length;
+    // If all subscribed → unsubscribe all; otherwise → subscribe all
+    const newSubscribed = !allSubscribed;
+
+    setTogglingGroups(prev => new Set(prev).add(group.name));
+    setError('');
+
+    try {
+      // Build items for the channels in this group
+      const groupItems = group.channels.map(ch => ({
+        channel_id: ch.channel_id,
+        channel_name: ch.channel_name,
+        server_id: ch.server_id || null,
+        server_name: ch.server_name || null,
+        subscribed: newSubscribed,
+        metadata: existingSubs.get(ch.channel_id)?.metadata || {},
+      }));
+
+      // Also include existing subs NOT in this group to preserve them
+      const groupChannelIds = new Set(group.channels.map(ch => ch.channel_id));
+      const otherItems = Array.from(existingSubs.values())
+        .filter(sub => !groupChannelIds.has(sub.channel_id))
         .map(sub => ({
           channel_id: sub.channel_id,
           channel_name: sub.channel_name,
@@ -330,66 +401,29 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
           metadata: sub.metadata || {},
         }));
 
-      await saveSubscriptions(service, [...items, ...existingItems]);
-      setSuccessMsg(`Subscribed to ${items.length} channel${items.length === 1 ? '' : 's'}`);
-      setTimeout(() => setSuccessMsg(''), 5000);
-      setSelectedIds(new Set());
+      await saveSubscriptions(service, [...groupItems, ...otherItems]);
+
+      const action = newSubscribed ? 'Subscribed to' : 'Unsubscribed from';
+      setSuccessMsg(`${action} ${group.channels.length} channel${group.channels.length === 1 ? '' : 's'} in ${group.name}`);
+      setTimeout(() => setSuccessMsg(''), 4000);
+
       // Refresh subscriptions
       await fetchExistingSubs();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to save subscriptions';
+      const msg = e instanceof Error ? e.message : 'Bulk toggle failed';
       setError(msg);
     } finally {
-      setSaving(false);
-    }
-  };
-
-  // Unsubscribe selected channels
-  const handleUnsubscribe = async () => {
-    if (selectedIds.size === 0) return;
-    setSaving(true);
-    setError('');
-    setSuccessMsg('');
-
-    try {
-      const items = Array.from(existingSubs.values()).map(sub => ({
-        channel_id: sub.channel_id,
-        channel_name: sub.channel_name,
-        server_id: sub.server_id || null,
-        server_name: sub.server_name || null,
-        subscribed: selectedIds.has(sub.channel_id) ? false : sub.subscribed,
-        metadata: sub.metadata || {},
-      }));
-
-      await saveSubscriptions(service, items);
-      const count = Array.from(selectedIds).filter(id => existingSubs.get(id)?.subscribed).length;
-      setSuccessMsg(`Unsubscribed from ${count} channel${count === 1 ? '' : 's'}`);
-      setTimeout(() => setSuccessMsg(''), 5000);
-      setSelectedIds(new Set());
-      await fetchExistingSubs();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to save subscriptions';
-      setError(msg);
-    } finally {
-      setSaving(false);
+      setTogglingGroups(prev => {
+        const next = new Set(prev);
+        next.delete(group.name);
+        return next;
+      });
     }
   };
 
   const toggleGroupCollapse = (name: string) => {
     setCollapsedGroups(prev => ({ ...prev, [name]: !prev[name] }));
   };
-
-  // How many selected are currently subscribed vs not
-  const selectedSubCount = useMemo(() => {
-    let subscribed = 0;
-    let unsubscribed = 0;
-    for (const id of selectedIds) {
-      const sub = existingSubs.get(id);
-      if (sub?.subscribed) subscribed++;
-      else unsubscribed++;
-    }
-    return { subscribed, unsubscribed };
-  }, [selectedIds, existingSubs]);
 
   /* ── Render: Not-configured state ──────────────────── */
   if (notConfiguredMsg) {
@@ -544,75 +578,6 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
             </button>
           </div>
 
-          {/* Selection action bar */}
-          {totalSelected > 0 && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12,
-              padding: '10px 14px', background: '#1e2430', border: '1px solid #3d5a80',
-              borderRadius: 8, flexWrap: 'wrap',
-            }}>
-              <span style={{ color: '#a0c4ff', fontSize: 13, fontWeight: 600 }}>
-                {totalSelected} channel{totalSelected === 1 ? '' : 's'} selected
-              </span>
-
-              {selectedSubCount.unsubscribed > 0 && (
-                <button
-                  onClick={handleSubscribe}
-                  disabled={saving}
-                  style={{
-                    padding: '5px 16px', background: '#1a3a1a', border: '1px solid #4ade80',
-                    borderRadius: 6, color: '#4ade80', cursor: saving ? 'wait' : 'pointer',
-                    fontSize: 13, fontWeight: 600,
-                  }}
-                >
-                  {saving ? '⟳ Saving…' : `✅ Subscribe (${selectedSubCount.unsubscribed})`}
-                </button>
-              )}
-
-              {selectedSubCount.subscribed > 0 && (
-                <button
-                  onClick={handleUnsubscribe}
-                  disabled={saving}
-                  style={{
-                    padding: '5px 16px', background: '#3a1a1a', border: '1px solid #ef4444',
-                    borderRadius: 6, color: '#ef4444', cursor: saving ? 'wait' : 'pointer',
-                    fontSize: 13, fontWeight: 600,
-                  }}
-                >
-                  {saving ? '⟳ Saving…' : `❌ Unsubscribe (${selectedSubCount.subscribed})`}
-                </button>
-              )}
-
-              <button
-                onClick={selectAllFiltered}
-                style={{
-                  padding: '4px 10px', background: 'none', border: '1px solid #555',
-                  borderRadius: 4, color: '#aaa', cursor: 'pointer', fontSize: 12,
-                }}
-              >
-                Select All
-              </button>
-              <button
-                onClick={selectNewOnly}
-                style={{
-                  padding: '4px 10px', background: 'none', border: '1px solid #555',
-                  borderRadius: 4, color: '#aaa', cursor: 'pointer', fontSize: 12,
-                }}
-              >
-                Select Unsubscribed Only
-              </button>
-              <button
-                onClick={deselectAll}
-                style={{
-                  padding: '4px 10px', background: 'none', border: '1px solid #555',
-                  borderRadius: 4, color: '#aaa', cursor: 'pointer', fontSize: 12, marginLeft: 'auto',
-                }}
-              >
-                ✕ Clear
-              </button>
-            </div>
-          )}
-
           {/* No results */}
           {channels.length === 0 && (
             <div className="card" style={{ padding: 40, textAlign: 'center', color: '#888' }}>
@@ -630,10 +595,11 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
           {/* Channel groups */}
           {groups.map(group => {
             const isCollapsed = collapsedGroups[group.name] ?? (groups.length > 3);
-            const groupSelectedCount = group.channels.filter(ch => selectedIds.has(ch.channel_id)).length;
-            const allGroupSelected = group.channels.length > 0 && groupSelectedCount === group.channels.length;
-            const someGroupSelected = groupSelectedCount > 0 && !allGroupSelected;
             const groupSubCount = group.channels.filter(ch => existingSubs.get(ch.channel_id)?.subscribed).length;
+            const groupTotal = group.channels.length;
+            const allSubscribed = groupTotal > 0 && groupSubCount === groupTotal;
+            const someSubscribed = groupSubCount > 0 && !allSubscribed;
+            const isGroupToggling = togglingGroups.has(group.name);
 
             // Limit rendered channels for performance
             const visibleChannels = isCollapsed ? [] : group.channels.slice(0, RENDER_LIMIT);
@@ -641,105 +607,106 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
 
             return (
               <div key={group.name} className="card" style={{ marginBottom: 12 }}>
+                {/* Group header */}
                 <div
-                  onClick={() => toggleGroupCollapse(group.name)}
                   style={{
-                    cursor: 'pointer', padding: '10px 14px',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '10px 14px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
                     userSelect: 'none',
                   }}
                 >
-                  <span style={{ fontWeight: 600, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input
-                      type="checkbox"
-                      checked={allGroupSelected}
-                      ref={el => { if (el) el.indeterminate = someGroupSelected; }}
-                      onChange={() => {}}
-                      onClick={e => { e.stopPropagation(); selectAllInGroup(group); }}
-                      style={{ cursor: 'pointer' }}
-                      title={allGroupSelected ? 'Deselect all' : 'Select all'}
-                    />
+                  {/* Left side: collapse toggle + group name */}
+                  <span
+                    onClick={() => toggleGroupCollapse(group.name)}
+                    style={{
+                      fontWeight: 600, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8,
+                      cursor: 'pointer', flex: 1,
+                    }}
+                  >
                     {isCollapsed ? '▸' : '▾'} {group.name}
                   </span>
-                  <span style={{ color: '#888', fontSize: 13 }}>
-                    {groupSelectedCount > 0 && (
-                      <span style={{ color: '#4a9eff', marginRight: 8 }}>{groupSelectedCount} selected</span>
-                    )}
-                    {groupSubCount > 0 && (
-                      <span style={{ color: '#4ade80', marginRight: 8 }}>{groupSubCount} subscribed</span>
-                    )}
-                    {group.channels.length} channel{group.channels.length === 1 ? '' : 's'}
+
+                  {/* Right side: channel count + tri-state subscribe button */}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                    <span style={{ color: '#888', fontSize: 13 }}>
+                      {groupSubCount > 0 && (
+                        <span style={{ color: '#4ade80', marginRight: 6 }}>{groupSubCount}/{groupTotal}</span>
+                      )}
+                      {groupTotal} ch{groupTotal === 1 ? '' : 's'}
+                    </span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleToggleGroup(group); }}
+                      disabled={isGroupToggling}
+                      style={
+                        isGroupToggling ? grpBtnLoading
+                        : allSubscribed ? grpBtnAll
+                        : someSubscribed ? grpBtnSome
+                        : grpBtnNone
+                      }
+                      title={
+                        allSubscribed ? 'Unsubscribe all channels in this group'
+                        : someSubscribed ? 'Subscribe remaining channels in this group'
+                        : 'Subscribe all channels in this group'
+                      }
+                    >
+                      {isGroupToggling ? (
+                        '⟳'
+                      ) : allSubscribed ? (
+                        <>🟢 All</>
+                      ) : someSubscribed ? (
+                        <>🟡 Partial</>
+                      ) : (
+                        <>⚪ None</>
+                      )}
+                    </button>
                   </span>
                 </div>
 
+                {/* Channel rows */}
                 {!isCollapsed && (
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid #444', fontSize: 12, color: '#888' }}>
-                        <th style={{ textAlign: 'center', padding: '4px 8px', width: 40 }}>
-                          <input
-                            type="checkbox"
-                            checked={allGroupSelected}
-                            ref={el => { if (el) el.indeterminate = someGroupSelected; }}
-                            onChange={() => selectAllInGroup(group)}
-                            style={{ cursor: 'pointer' }}
-                          />
-                        </th>
-                        <th style={{ textAlign: 'left', padding: '4px 8px' }}>Channel</th>
-                        <th style={{ textAlign: 'center', padding: '4px 8px', width: 100 }}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleChannels.map(ch => {
-                        const isSelected = selectedIds.has(ch.channel_id);
-                        const sub = existingSubs.get(ch.channel_id);
-                        const isSubscribed = sub?.subscribed ?? false;
+                  <div style={{ borderTop: '1px solid #333' }}>
+                    {visibleChannels.map(ch => {
+                      const sub = existingSubs.get(ch.channel_id);
+                      const isSubscribed = sub?.subscribed ?? false;
+                      const isToggling = togglingChannels.has(ch.channel_id);
 
-                        return (
-                          <tr
-                            key={ch.channel_id}
-                            style={{
-                              borderBottom: '1px solid #333',
-                              background: isSelected ? '#1e2a3a' : undefined,
-                              cursor: 'pointer',
-                            }}
-                            onClick={() => toggleSelect(ch.channel_id)}
+                      return (
+                        <div
+                          key={ch.channel_id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '7px 14px',
+                            borderBottom: '1px solid #2a2a2a',
+                            gap: 8,
+                          }}
+                        >
+                          {/* Channel info */}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ fontWeight: 500, fontSize: 14 }}>{ch.channel_name}</span>
+                            <br />
+                            <code style={{ fontSize: 11, color: '#666' }}>{ch.channel_id}</code>
+                          </div>
+
+                          {/* Inline subscribe button */}
+                          <button
+                            onClick={() => handleToggleChannel(ch)}
+                            disabled={isToggling}
+                            style={
+                              isToggling ? btnLoading
+                              : isSubscribed ? btnSubscribed
+                              : btnNotSubscribed
+                            }
                           >
-                            <td style={{ padding: '6px 8px', textAlign: 'center', width: 40 }}>
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleSelect(ch.channel_id)}
-                                onClick={e => e.stopPropagation()}
-                                style={{ cursor: 'pointer' }}
-                              />
-                            </td>
-                            <td style={{ padding: '6px 8px' }}>
-                              <span style={{ fontWeight: 500 }}>{ch.channel_name}</span>
-                              <br />
-                              <code style={{ fontSize: 11, color: '#888' }}>{ch.channel_id}</code>
-                            </td>
-                            <td style={{ padding: '6px 8px', textAlign: 'center' }}>
-                              {isSubscribed ? (
-                                <span style={{
-                                  background: '#1a3a1a', color: '#4ade80',
-                                  fontSize: 11, padding: '2px 8px', borderRadius: 4,
-                                }}>
-                                  ✓ subscribed
-                                </span>
-                              ) : (
-                                <span style={{
-                                  color: '#666', fontSize: 11,
-                                }}>
-                                  not subscribed
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                            {isToggling ? '⟳' : isSubscribed ? '✅ Subscribed' : 'Subscribe'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
                 {hasMore && (
                   <div style={{ padding: '8px 14px', color: '#888', fontSize: 12, borderTop: '1px solid #333' }}>
