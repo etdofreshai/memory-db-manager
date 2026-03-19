@@ -82,6 +82,9 @@ export default function DiscordChannels() {
   const [refreshMsg, setRefreshMsg] = useState('');
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [scheduleMenuOpen, setScheduleMenuOpen] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [massActionWorking, setMassActionWorking] = useState(false);
+  const [massScheduleOpen, setMassScheduleOpen] = useState(false);
 
   const CADENCE_OPTIONS: { label: string; value: string; minutes: number }[] = [
     { label: 'Every hour',     value: '1h',  minutes: 60 },
@@ -102,17 +105,19 @@ export default function DiscordChannels() {
   const [startDateInput, setStartDateInput] = useState('');
   const [startDateLoading, setStartDateLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const massScheduleRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   // Close menu on outside click
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !massScheduleOpen) return;
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(null);
+      if (massScheduleRef.current && !massScheduleRef.current.contains(e.target as Node)) setMassScheduleOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [menuOpen]);
+  }, [menuOpen, massScheduleOpen]);
 
   const fetchAll = useCallback(() => {
     Promise.all([
@@ -385,6 +390,90 @@ export default function DiscordChannels() {
     }
   };
 
+  // Selection helpers
+  const allFilteredIds = useMemo(() => filtered.map(ch => ch.id), [filtered]);
+  const allSelected = allFilteredIds.length > 0 && allFilteredIds.every(id => selectedIds.has(id));
+  const someSelected = selectedIds.size > 0;
+  const selectedCount = selectedIds.size;
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => setSelectedIds(new Set(allFilteredIds));
+  const deselectAll = () => setSelectedIds(new Set());
+
+  // Mass schedule: create/replace jobs for all selected channels
+  const handleMassSchedule = async (cadence: string) => {
+    setMassScheduleOpen(false);
+    setMassActionWorking(true);
+    const mins = CADENCE_OPTIONS.find(o => o.value === cadence)?.minutes ?? 1440;
+    try {
+      for (const chId of selectedIds) {
+        const ch = merged.find(c => c.id === chId);
+        if (!ch) continue;
+        const existing = jobsByChannel[chId];
+        if (existing) {
+          const jobId = existing._id || existing.id;
+          await discordApi(`/api/jobs/${jobId}`, { method: 'DELETE' });
+        }
+        await discordApi('/api/jobs', {
+          method: 'POST',
+          body: JSON.stringify({
+            channel: chId,
+            name: `#${ch.name} every ${cadence}`,
+            sincePreset: cadence,
+            cadencePreset: cadence,
+            intervalMinutes: mins,
+            enabled: true,
+          }),
+        });
+      }
+      const freshJobs = await discordApi<Job[]>('/api/jobs');
+      setJobs(Array.isArray(freshJobs) ? freshJobs : []);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setMassActionWorking(false);
+    }
+  };
+
+  // Mass backfill: trigger backfill for all selected channels
+  const handleMassBackfill = async () => {
+    setMassActionWorking(true);
+    try {
+      for (const chId of selectedIds) {
+        if (backfillRunning[chId] || backfillQueued[chId]) continue;
+        const ch = merged.find(c => c.id === chId);
+        if (!ch) continue;
+        try {
+          const raw = await fetch(`/proxy/discord-ingestor/api/backfill/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ channelId: chId, attachmentMode: 'missing' }),
+          });
+          const body = await raw.json().catch(() => ({}));
+          if (raw.status === 202 && body?.queued) {
+            setBackfillQueued(p => ({ ...p, [chId]: { runId: body.runId, position: body.position } }));
+            pollBackfillStatus(chId, body.runId);
+          } else if (raw.ok && body?.runId) {
+            setBackfillRunning(p => ({ ...p, [chId]: body.runId }));
+            try { const m = JSON.parse(localStorage.getItem('backfill:runChannels') || '{}'); m[body.runId] = chId; localStorage.setItem('backfill:runChannels', JSON.stringify(m)); } catch {}
+            pollBackfillStatus(chId, body.runId);
+          }
+        } catch {}
+      }
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setMassActionWorking(false);
+    }
+  };
+
   const renderBadge = (ch: MergedChannel) => {
     const job = jobsByChannel[ch.id];
     if (!job) return null;
@@ -410,8 +499,16 @@ export default function DiscordChannels() {
       cursor: isLoading ? 'wait' : 'pointer', marginLeft: 4,
     });
     const toggleBusy = !!togglingEnabled[ch.id];
+    const isSelected = selectedIds.has(ch.id);
     return (
-      <tr key={ch.id} style={{ borderBottom: '1px solid #333' }}>
+      <tr key={ch.id} style={{ borderBottom: '1px solid #333', background: isSelected ? '#1e2a3a' : undefined }}>
+        <td style={{ padding: '6px 8px', textAlign: 'center', width: 30 }}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => toggleSelect(ch.id)}
+          />
+        </td>
         <td style={{ padding: '6px 8px' }}>
           <strong>{ch.name}</strong>
           {renderBadge(ch)}
@@ -582,6 +679,14 @@ export default function DiscordChannels() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #444', fontSize: 12, color: '#888' }}>
+                <th style={{ textAlign: 'center', padding: '4px 8px', width: 30 }}>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={() => allSelected ? deselectAll() : selectAll()}
+                    title="Select all"
+                  />
+                </th>
                 <th style={{ textAlign: 'left', padding: '4px 8px' }}>Channel</th>
                 <th style={{ textAlign: 'left', padding: '4px 8px' }}>Last message</th>
                 <th style={{ textAlign: 'left', padding: '4px 8px' }}>Last synced</th>
@@ -626,6 +731,60 @@ export default function DiscordChannels() {
           style={{ padding: '5px 10px', background: 'none', border: '1px solid #555', borderRadius: 6, color: '#aaa', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
         >⊟ Collapse All</button>
       </div>
+
+      {/* Selection action bar */}
+      {someSelected && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '10px 14px', background: '#1e2430', border: '1px solid #3d5a80', borderRadius: 8, flexWrap: 'wrap' }}>
+          <span style={{ color: '#a0c4ff', fontSize: 13, fontWeight: 600 }}>{selectedCount} channel{selectedCount === 1 ? '' : 's'} selected</span>
+          <button onClick={selectAll} style={{ padding: '4px 10px', background: 'none', border: '1px solid #555', borderRadius: 4, color: '#aaa', cursor: 'pointer', fontSize: 12 }}>Select All</button>
+          <button onClick={deselectAll} style={{ padding: '4px 10px', background: 'none', border: '1px solid #555', borderRadius: 4, color: '#aaa', cursor: 'pointer', fontSize: 12 }}>Deselect All</button>
+          <div style={{ position: 'relative', display: 'inline-block' }} ref={massScheduleRef}>
+            <button
+              onClick={() => setMassScheduleOpen(!massScheduleOpen)}
+              disabled={massActionWorking}
+              style={{ padding: '5px 12px', background: '#1a3a1a', border: '1px solid #4ade80', borderRadius: 6, color: '#4ade80', cursor: massActionWorking ? 'wait' : 'pointer', fontSize: 12 }}
+            >
+              🕐 Mass Schedule
+            </button>
+            {massScheduleOpen && (
+              <div style={{
+                position: 'absolute', left: 0, top: '100%', marginTop: 4,
+                background: '#2f3136', border: '1px solid #555', borderRadius: 6,
+                zIndex: 60, minWidth: 160, boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+              }}>
+                {CADENCE_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => handleMassSchedule(opt.value)}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left', padding: '7px 12px',
+                      background: 'none', border: 'none', color: '#e0e0e0', cursor: 'pointer', fontSize: 13,
+                    }}
+                    onMouseOver={e => (e.currentTarget.style.background = '#3d4046')}
+                    onMouseOut={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={handleMassBackfill}
+            disabled={massActionWorking}
+            style={{ padding: '5px 12px', background: '#1a2a3a', border: '1px solid #60a5fa', borderRadius: 6, color: '#60a5fa', cursor: massActionWorking ? 'wait' : 'pointer', fontSize: 12 }}
+          >
+            ⬇ Mass Backfill
+          </button>
+          <button
+            onClick={deselectAll}
+            style={{ padding: '4px 10px', background: 'none', border: '1px solid #555', borderRadius: 4, color: '#aaa', cursor: 'pointer', fontSize: 12, marginLeft: 'auto' }}
+          >
+            ✕ Clear
+          </button>
+        </div>
+      )}
+
       {loading ? <p>Loading...</p> : (
         <>
           {dmGroup.length > 0 && renderSection('Direct Messages', dmGroup)}
