@@ -23,6 +23,15 @@ interface ItemGroup {
   collapsed?: boolean;
 }
 
+interface LiveMessage {
+  id?: string | number;
+  sender: string;
+  content: string;
+  timestamp: string;
+  isAssistant?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
 /* ── Service theme colors ────────────────────────────── */
 
 const SERVICE_THEMES: Record<string, {
@@ -32,6 +41,7 @@ const SERVICE_THEMES: Record<string, {
   selectedBg: string;
   headerBg: string;
   prefix?: string;
+  msgBubbleBg?: string;
 }> = {
   discord: {
     accent: '#5865F2',
@@ -40,6 +50,7 @@ const SERVICE_THEMES: Record<string, {
     selectedBg: '#35373c',
     headerBg: '#313338',
     prefix: '#',
+    msgBubbleBg: '#2b2d31',
   },
   slack: {
     accent: '#4A154B',
@@ -48,6 +59,7 @@ const SERVICE_THEMES: Record<string, {
     selectedBg: '#1164a3',
     headerBg: '#1a1d21',
     prefix: '#',
+    msgBubbleBg: '#222529',
   },
   chatgpt: {
     accent: '#10a37f',
@@ -55,6 +67,7 @@ const SERVICE_THEMES: Record<string, {
     sidebarBorder: '#2d2d2d',
     selectedBg: '#2d2d2d',
     headerBg: '#212121',
+    msgBubbleBg: '#2d2d2d',
   },
   gmail: {
     accent: '#c71610',
@@ -62,6 +75,7 @@ const SERVICE_THEMES: Record<string, {
     sidebarBorder: '#333',
     selectedBg: '#2a2a4e',
     headerBg: '#1e1e3a',
+    msgBubbleBg: '#1e1e3a',
   },
   openclaw: {
     accent: '#ff6b35',
@@ -69,6 +83,7 @@ const SERVICE_THEMES: Record<string, {
     sidebarBorder: '#333',
     selectedBg: '#2a2020',
     headerBg: '#1e1a1a',
+    msgBubbleBg: '#221a1a',
   },
   anthropic: {
     accent: '#d4a574',
@@ -76,10 +91,22 @@ const SERVICE_THEMES: Record<string, {
     sidebarBorder: '#332e28',
     selectedBg: '#2a2520',
     headerBg: '#1e1c18',
+    msgBubbleBg: '#231f1a',
   },
 };
 
-/* ── Service-specific fetchers ───────────────────────── */
+/* ── Source name mapping (for DB queries) ────────────── */
+
+const SOURCE_NAME_MAP: Record<string, string> = {
+  discord: 'discord',
+  slack: 'slack',
+  chatgpt: 'chatgpt',
+  gmail: 'email',
+  openclaw: 'openclaw',
+  anthropic: 'anthropic',
+};
+
+/* ── Service-specific sidebar fetchers ───────────────── */
 
 async function fetchDiscord(): Promise<SidebarItem[]> {
   const data = await discordApi<Record<string, { channelName: string; guildId: string | null; guildName: string | null }>>('/api/channels');
@@ -167,7 +194,7 @@ const FETCH_FN: Record<string, () => Promise<SidebarItem[]>> = {
   anthropic: fetchAnthropic,
 };
 
-/* ── Detail fetchers (when an item is selected) ──────── */
+/* ── Detail fetchers (messages for selected item) ────── */
 
 async function fetchGmailEmails(mailboxName: string): Promise<any[]> {
   try {
@@ -176,6 +203,136 @@ async function fetchGmailEmails(mailboxName: string): Promise<any[]> {
   } catch {
     return [];
   }
+}
+
+/** Fetch messages from the memory DB for a given source + channel metadata match */
+async function fetchDbMessagesForChannel(
+  service: string,
+  channelId: string,
+): Promise<LiveMessage[]> {
+  const sourceName = SOURCE_NAME_MAP[service] || service;
+
+  try {
+    // Fetch messages from the memory database API
+    // We'll get a batch and filter by metadata in the client
+    const data = await apiFetch<any>(
+      `/api/messages?source=${sourceName}&limit=200&offset=0&sort=timestamp&order=desc`
+    );
+    const allMsgs: any[] = data.messages || [];
+
+    // Filter messages that match this channel
+    const filtered = allMsgs.filter(msg => {
+      const meta = msg.metadata || {};
+      switch (service) {
+        case 'discord':
+          return (meta.channelId || meta.channel_id) === channelId;
+        case 'slack':
+          return (meta.channelId || meta.channel_id || meta.channel) === channelId;
+        case 'chatgpt':
+          return (meta.conversationId || meta.conversation_id) === channelId;
+        case 'anthropic':
+          return (meta.conversationId || meta.conversation_id) === channelId;
+        case 'openclaw':
+          return (meta.sessionKey || meta.session_key || meta.sessionId || meta.session_id) === channelId;
+        default:
+          return false;
+      }
+    });
+
+    return filtered.map(msg => ({
+      id: msg.id,
+      sender: msg.sender || 'Unknown',
+      content: msg.content || '',
+      timestamp: msg.timestamp || '',
+      isAssistant: msg.sender === 'assistant' || msg.sender?.toLowerCase().includes('bot'),
+      metadata: msg.metadata,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Try to fetch conversation content from ChatGPT ingestor */
+async function fetchChatGPTConversation(conversationId: string): Promise<LiveMessage[]> {
+  try {
+    const data = await chatgptApi<any>(`/api/conversations/${conversationId}`);
+    // Parse the conversation mapping into messages
+    const mapping = data?.mapping || data?.conversation?.mapping || {};
+    const messages: LiveMessage[] = [];
+
+    for (const [, node] of Object.entries<any>(mapping)) {
+      if (!node?.message?.content?.parts) continue;
+      const msg = node.message;
+      const role = msg.author?.role || 'unknown';
+      const content = msg.content.parts.filter((p: any) => typeof p === 'string').join('\n');
+      if (!content.trim()) continue;
+
+      messages.push({
+        id: msg.id,
+        sender: role === 'assistant' ? 'ChatGPT' : role === 'user' ? 'You' : role,
+        content,
+        timestamp: msg.create_time ? new Date(msg.create_time * 1000).toISOString() : '',
+        isAssistant: role === 'assistant',
+      });
+    }
+
+    return messages.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  } catch {
+    // Fall back to DB messages
+    return fetchDbMessagesForChannel('chatgpt', conversationId);
+  }
+}
+
+/** Try to fetch conversation from Anthropic ingestor */
+async function fetchAnthropicConversation(conversationId: string): Promise<LiveMessage[]> {
+  try {
+    const data = await apiFetch<any>(`/proxy/anthropic-ingestor/api/conversations/${conversationId}`);
+    const msgs = data?.messages || data?.chat_messages || [];
+    if (Array.isArray(msgs) && msgs.length > 0) {
+      return msgs.map((msg: any) => ({
+        id: msg.uuid || msg.id,
+        sender: msg.sender === 'human' ? 'You' : msg.sender === 'assistant' ? 'Claude' : (msg.sender || 'Unknown'),
+        content: typeof msg.text === 'string' ? msg.text : (
+          Array.isArray(msg.content) ? msg.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n') : (msg.content || '')
+        ),
+        timestamp: msg.created_at || msg.timestamp || '',
+        isAssistant: msg.sender === 'assistant',
+      }));
+    }
+    return fetchDbMessagesForChannel('anthropic', conversationId);
+  } catch {
+    return fetchDbMessagesForChannel('anthropic', conversationId);
+  }
+}
+
+/** Fetch OpenClaw session history */
+async function fetchOpenClawSession(sessionKey: string): Promise<LiveMessage[]> {
+  try {
+    const data = await openclawApi<any>(`/api/sessions/${encodeURIComponent(sessionKey)}/history`);
+    const msgs = data?.messages || data?.history || [];
+    if (Array.isArray(msgs) && msgs.length > 0) {
+      return msgs.map((msg: any) => ({
+        id: msg.id || msg.timestamp,
+        sender: msg.role === 'assistant' ? 'OpenClaw' : msg.role === 'user' ? 'You' : (msg.sender || msg.role || 'Unknown'),
+        content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content || ''),
+        timestamp: msg.timestamp || msg.created_at || '',
+        isAssistant: msg.role === 'assistant',
+      }));
+    }
+    return fetchDbMessagesForChannel('openclaw', sessionKey);
+  } catch {
+    return fetchDbMessagesForChannel('openclaw', sessionKey);
+  }
+}
+
+/** Fetch Discord channel messages from DB */
+async function fetchDiscordChannel(channelId: string): Promise<LiveMessage[]> {
+  return fetchDbMessagesForChannel('discord', channelId);
+}
+
+/** Fetch Slack channel messages from DB */
+async function fetchSlackChannel(channelId: string): Promise<LiveMessage[]> {
+  return fetchDbMessagesForChannel('slack', channelId);
 }
 
 /* ── Component ───────────────────────────────────────── */
@@ -189,6 +346,8 @@ export default function AppViewLive({ service, serviceLabel, serviceKey }: AppVi
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [detailData, setDetailData] = useState<any[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [channelMessages, setChannelMessages] = useState<LiveMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
 
   const theme = SERVICE_THEMES[service] || SERVICE_THEMES.discord;
 
@@ -246,21 +405,59 @@ export default function AppViewLive({ service, serviceLabel, serviceKey }: AppVi
 
   const selectedItem = useMemo(() => items.find(i => i.id === selectedId), [items, selectedId]);
 
-  // Fetch detail data when item selected (for Gmail, etc.)
+  // Fetch detail data + messages when item selected
   const handleSelect = useCallback(async (item: SidebarItem) => {
     setSelectedId(item.id);
     setDetailData([]);
+    setChannelMessages([]);
+    setMessagesLoading(true);
 
-    if (service === 'gmail') {
-      setDetailLoading(true);
-      try {
-        const emails = await fetchGmailEmails(item.name);
-        setDetailData(emails);
-      } catch {
-        // ignore
-      } finally {
-        setDetailLoading(false);
+    try {
+      switch (service) {
+        case 'gmail': {
+          setDetailLoading(true);
+          try {
+            const emails = await fetchGmailEmails(item.name);
+            setDetailData(emails);
+          } catch {
+            // ignore
+          } finally {
+            setDetailLoading(false);
+          }
+          break;
+        }
+        case 'discord': {
+          const msgs = await fetchDiscordChannel(item.id);
+          setChannelMessages(msgs);
+          break;
+        }
+        case 'slack': {
+          const msgs = await fetchSlackChannel(item.id);
+          setChannelMessages(msgs);
+          break;
+        }
+        case 'chatgpt': {
+          const msgs = await fetchChatGPTConversation(item.id);
+          setChannelMessages(msgs);
+          break;
+        }
+        case 'anthropic': {
+          const msgs = await fetchAnthropicConversation(item.id);
+          setChannelMessages(msgs);
+          break;
+        }
+        case 'openclaw': {
+          const msgs = await fetchOpenClawSession(item.id);
+          setChannelMessages(msgs);
+          break;
+        }
+        default: {
+          const msgs = await fetchDbMessagesForChannel(service, item.id);
+          setChannelMessages(msgs);
+        }
       }
+    } finally {
+      setMessagesLoading(false);
     }
   }, [service]);
 
@@ -473,7 +670,7 @@ export default function AppViewLive({ service, serviceLabel, serviceKey }: AppVi
               <p style={{ fontSize: 13, color: '#555' }}>{filtered.length} items available</p>
             </div>
           ) : (
-            /* Selected item detail */
+            /* Selected item with messages */
             <>
               {/* Header bar */}
               <div style={{
@@ -485,17 +682,44 @@ export default function AppViewLive({ service, serviceLabel, serviceKey }: AppVi
                 flexShrink: 0,
               }}>
                 {theme.prefix && <span style={{ color: '#888', fontSize: 20 }}>{theme.prefix}</span>}
-                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{selectedItem.name}</h2>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, flex: 1 }}>{selectedItem.name}</h2>
                 {selectedItem.group && (
-                  <span style={{ fontSize: 12, color: '#888', marginLeft: 'auto' }}>
+                  <span style={{ fontSize: 12, color: '#888' }}>
                     {selectedItem.group}
+                  </span>
+                )}
+                {channelMessages.length > 0 && (
+                  <span style={{ fontSize: 12, color: '#666' }}>
+                    {channelMessages.length} messages
                   </span>
                 )}
               </div>
 
               {/* Content */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
-                {renderLiveDetail(service, selectedItem, detailData, detailLoading, theme)}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+                {service === 'gmail' ? (
+                  renderGmailDetail(selectedItem, detailData, detailLoading, theme)
+                ) : messagesLoading ? (
+                  <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>
+                    <div style={{ fontSize: 24, marginBottom: 8 }}>⏳</div>
+                    Loading messages…
+                  </div>
+                ) : channelMessages.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {channelMessages.map((msg, i) => (
+                      <LiveMessageBubble key={msg.id || i} msg={msg} service={service} theme={theme} />
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ padding: 40, textAlign: 'center' }}>
+                    <div style={{ fontSize: 32, marginBottom: 12, color: '#555' }}>💬</div>
+                    <p style={{ color: '#888', fontSize: 14, marginBottom: 8 }}>No messages found</p>
+                    <p style={{ color: '#555', fontSize: 13 }}>
+                      Messages for this {service === 'chatgpt' || service === 'anthropic' ? 'conversation' : 'channel'} may not be synced to the database yet.
+                    </p>
+                    {renderItemInfo(service, selectedItem)}
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -512,122 +736,71 @@ export default function AppViewLive({ service, serviceLabel, serviceKey }: AppVi
   );
 }
 
-/* ── Detail renderers per service ────────────────────── */
+/* ── Live message bubble ─────────────────────────────── */
 
-function renderLiveDetail(
-  service: string,
-  item: SidebarItem,
-  detailData: any[],
-  detailLoading: boolean,
-  theme: typeof SERVICE_THEMES.discord,
-) {
-  switch (service) {
-    case 'discord':
-      return renderDiscordDetail(item, theme);
-    case 'slack':
-      return renderSlackDetail(item, theme);
-    case 'chatgpt':
-      return renderChatGPTDetail(item, theme);
-    case 'gmail':
-      return renderGmailDetail(item, detailData, detailLoading, theme);
-    case 'openclaw':
-      return renderOpenClawDetail(item, theme);
-    case 'anthropic':
-      return renderAnthropicDetail(item, theme);
-    default:
-      return renderGenericDetail(item);
-  }
-}
+function LiveMessageBubble({ msg, service, theme }: {
+  msg: LiveMessage;
+  service: string;
+  theme: typeof SERVICE_THEMES.discord;
+}) {
+  const ts = msg.timestamp ? new Date(msg.timestamp) : null;
+  const timeStr = ts && !isNaN(ts.getTime()) ? ts.toLocaleString() : '';
 
-function renderDiscordDetail(item: SidebarItem, theme: typeof SERVICE_THEMES.discord) {
+  const isChatService = service === 'chatgpt' || service === 'anthropic' || service === 'openclaw';
+
   return (
-    <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 16px',
-          background: '#5865F220',
-          borderRadius: 8,
-          border: '1px solid #5865F240',
+    <div style={{
+      padding: '8px 12px',
+      background: theme.msgBubbleBg || '#2a2a3a',
+      borderRadius: 6,
+      borderLeft: `3px solid ${
+        isChatService
+          ? (msg.isAssistant ? theme.accent : '#888')
+          : theme.accent + '60'
+      }`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+        <span style={{
+          fontWeight: 600,
+          fontSize: 13,
+          color: isChatService
+            ? (msg.isAssistant ? theme.accent : '#e0e0e0')
+            : theme.accent,
         }}>
-          <span style={{ fontSize: 20 }}>#</span>
-          <span style={{ fontSize: 16, fontWeight: 600 }}>{item.name}</span>
-        </div>
+          {msg.sender}
+        </span>
+        <span style={{ fontSize: 11, color: '#555', marginLeft: 'auto' }}>{timeStr}</span>
       </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, maxWidth: 500 }}>
-        <InfoField label="Channel ID" value={item.id} />
-        {item.group && <InfoField label="Server" value={item.group} />}
-        {item.meta?.guildId && <InfoField label="Guild ID" value={String(item.meta.guildId)} />}
-      </div>
-
-      <div style={{ marginTop: 24, padding: 16, background: '#2b2d3180', borderRadius: 8, border: '1px solid #3f4147' }}>
-        <p style={{ color: '#888', fontSize: 13, margin: 0 }}>
-          💡 This is a live view of the channel from the Discord ingestor. Message content is available through the Messages and Database views.
-        </p>
+      <div style={{
+        fontSize: 14,
+        lineHeight: 1.5,
+        color: '#ddd',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        maxHeight: 400,
+        overflow: 'auto',
+      }}>
+        {msg.content || '(no content)'}
       </div>
     </div>
   );
 }
 
-function renderSlackDetail(item: SidebarItem, theme: typeof SERVICE_THEMES.slack) {
-  const meta = item.meta || {};
-  return (
-    <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 16px',
-          background: '#4A154B20',
-          borderRadius: 8,
-          border: '1px solid #4A154B40',
-        }}>
-          <span style={{ fontSize: 20 }}>#</span>
-          <span style={{ fontSize: 16, fontWeight: 600 }}>{item.name}</span>
-        </div>
-      </div>
+/* ── Item info (shown when no messages) ──────────────── */
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, maxWidth: 500 }}>
-        <InfoField label="Channel ID" value={item.id} />
-        {item.count !== undefined && <InfoField label="Members" value={String(item.count)} />}
-        {meta.purpose?.value && <InfoField label="Purpose" value={meta.purpose.value} />}
-        {meta.topic?.value && <InfoField label="Topic" value={meta.topic.value} />}
-      </div>
+function renderItemInfo(service: string, item: SidebarItem) {
+  return (
+    <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, maxWidth: 400, margin: '16px auto 0' }}>
+      <InfoField label="ID" value={item.id} />
+      {item.group && <InfoField label="Group" value={item.group} />}
+      {item.meta && Object.entries(item.meta).slice(0, 4).map(([k, v]) => (
+        v && typeof v !== 'object' ? <InfoField key={k} label={k} value={String(v)} /> : null
+      ))}
     </div>
   );
 }
 
-function renderChatGPTDetail(item: SidebarItem, theme: typeof SERVICE_THEMES.chatgpt) {
-  const meta = item.meta || {};
-  return (
-    <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 16px',
-          background: '#10a37f20',
-          borderRadius: 8,
-          border: '1px solid #10a37f40',
-        }}>
-          <span style={{ fontSize: 20 }}>🤖</span>
-          <span style={{ fontSize: 16, fontWeight: 600 }}>{item.name}</span>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, maxWidth: 500 }}>
-        <InfoField label="Conversation ID" value={item.id} />
-        {meta.create_time && <InfoField label="Created" value={formatTimestamp(meta.create_time)} />}
-        {meta.update_time && <InfoField label="Updated" value={formatTimestamp(meta.update_time)} />}
-      </div>
-    </div>
-  );
-}
+/* ── Gmail detail (special case — shows email list) ─── */
 
 function renderGmailDetail(
   item: SidebarItem,
@@ -701,88 +874,6 @@ function renderGmailDetail(
   );
 }
 
-function renderOpenClawDetail(item: SidebarItem, theme: typeof SERVICE_THEMES.openclaw) {
-  const meta = item.meta || {};
-  return (
-    <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 16px',
-          background: '#ff6b3520',
-          borderRadius: 8,
-          border: '1px solid #ff6b3540',
-        }}>
-          <span style={{ fontSize: 20 }}>🦞</span>
-          <span style={{ fontSize: 16, fontWeight: 600 }}>{item.name}</span>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, maxWidth: 500 }}>
-        <InfoField label="Session Key" value={item.id} />
-        {item.group && <InfoField label="Kind" value={item.group} />}
-        {meta.createdAt && <InfoField label="Created" value={formatTimestamp(meta.createdAt)} />}
-        {meta.updatedAt && <InfoField label="Updated" value={formatTimestamp(meta.updatedAt)} />}
-        {meta.channel && <InfoField label="Channel" value={String(meta.channel)} />}
-        {meta.model && <InfoField label="Model" value={String(meta.model)} />}
-      </div>
-    </div>
-  );
-}
-
-function renderAnthropicDetail(item: SidebarItem, theme: typeof SERVICE_THEMES.anthropic) {
-  const meta = item.meta || {};
-  return (
-    <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 16px',
-          background: '#d4a57420',
-          borderRadius: 8,
-          border: '1px solid #d4a57440',
-        }}>
-          <span style={{ fontSize: 20 }}>✳️</span>
-          <span style={{ fontSize: 16, fontWeight: 600 }}>{item.name}</span>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, maxWidth: 500 }}>
-        <InfoField label="ID" value={item.id} />
-        {meta.model && <InfoField label="Model" value={String(meta.model)} />}
-        {meta.created_at && <InfoField label="Created" value={formatTimestamp(meta.created_at)} />}
-      </div>
-    </div>
-  );
-}
-
-function renderGenericDetail(item: SidebarItem) {
-  return (
-    <div>
-      <h3 style={{ margin: '0 0 16px' }}>{item.name}</h3>
-      <InfoField label="ID" value={item.id} />
-      {item.group && <InfoField label="Group" value={item.group} />}
-      {item.meta && (
-        <pre style={{
-          marginTop: 16,
-          padding: 12,
-          background: '#1a1a2a',
-          borderRadius: 6,
-          fontSize: 12,
-          overflow: 'auto',
-          maxHeight: 400,
-        }}>
-          {JSON.stringify(item.meta, null, 2)}
-        </pre>
-      )}
-    </div>
-  );
-}
-
 /* ── Helper components ───────────────────────────────── */
 
 function InfoField({ label, value }: { label: string; value: string }) {
@@ -794,16 +885,4 @@ function InfoField({ label, value }: { label: string; value: string }) {
       <div style={{ fontSize: 14, wordBreak: 'break-all' }}>{value}</div>
     </div>
   );
-}
-
-function formatTimestamp(ts: any): string {
-  if (!ts) return '';
-  try {
-    const d = typeof ts === 'number'
-      ? new Date(ts > 1e12 ? ts : ts * 1000)
-      : new Date(ts);
-    return d.toLocaleString();
-  } catch {
-    return String(ts);
-  }
 }

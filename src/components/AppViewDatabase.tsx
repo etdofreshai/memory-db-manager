@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { apiFetch } from '../api';
 
 /* ── Types ───────────────────────────────────────────── */
@@ -14,9 +14,6 @@ interface DbMessage {
   record_id: string;
   source_id: number;
   external_id: string;
-  channel_id: string;
-  channel_name: string;
-  thread_id: string | null;
   sender: string;
   sender_id: string | null;
   recipient: string | null;
@@ -24,6 +21,7 @@ interface DbMessage {
   content: string;
   timestamp: string;
   metadata: Record<string, unknown> | null;
+  source_name?: string;
 }
 
 interface ChannelGroup {
@@ -113,6 +111,84 @@ const SERVICE_THEMES: Record<string, {
   },
 };
 
+/* ── Channel extraction from metadata ────────────────── */
+
+function extractChannelInfo(service: string, msg: DbMessage): { channelId: string; channelName: string } {
+  const meta = (msg.metadata && typeof msg.metadata === 'object') ? msg.metadata as Record<string, any> : {};
+
+  switch (service) {
+    case 'discord': {
+      const channelId = meta.channelId || meta.channel_id || '';
+      const channelName = meta.channelName || meta.channel_name || (channelId ? `channel-${channelId}` : '');
+      return { channelId: channelId || 'unknown', channelName: channelName || channelId || 'unknown' };
+    }
+    case 'slack': {
+      const channelId = meta.channelId || meta.channel_id || meta.channel || '';
+      const channelName = meta.channelName || meta.channel_name || channelId || '';
+      return { channelId: channelId || 'unknown', channelName: channelName || channelId || 'unknown' };
+    }
+    case 'chatgpt': {
+      const convId = meta.conversationId || meta.conversation_id || '';
+      const convTitle = meta.conversationTitle || meta.conversation_title || meta.title || '';
+      return { channelId: convId || 'unknown', channelName: convTitle || convId || 'Untitled' };
+    }
+    case 'anthropic': {
+      const convId = meta.conversationId || meta.conversation_id || '';
+      const convTitle = meta.conversationTitle || meta.conversation_title || meta.title || '';
+      return { channelId: convId || 'unknown', channelName: convTitle || convId || 'Conversation' };
+    }
+    case 'openclaw': {
+      const sessionKey = meta.sessionKey || meta.session_key || meta.sessionId || meta.session_id || '';
+      return { channelId: sessionKey || 'unknown', channelName: sessionKey || 'unknown' };
+    }
+    case 'gmail': {
+      // Extract mailbox from external_id: "gmail:[Gmail]/All Mail:{uid}"
+      if (msg.external_id) {
+        const match = msg.external_id.match(/^gmail:(.+?):\d+$/);
+        if (match) {
+          return { channelId: match[1], channelName: match[1] };
+        }
+      }
+      // Fallback: group by sender/recipient thread
+      const threadId = meta.threadId || meta.thread_id || meta.message_id || '';
+      return { channelId: threadId || 'inbox', channelName: threadId || 'Inbox' };
+    }
+    default: {
+      // Generic fallback: try common metadata fields
+      const id = meta.channelId || meta.channel_id || meta.conversationId || meta.sessionKey || '';
+      const name = meta.channelName || meta.channel_name || meta.conversationTitle || id || '';
+      return { channelId: id || 'unknown', channelName: name || 'unknown' };
+    }
+  }
+}
+
+function inferGroup(service: string, msg: DbMessage): string {
+  const meta = (msg.metadata && typeof msg.metadata === 'object') ? msg.metadata as Record<string, any> : {};
+
+  switch (service) {
+    case 'discord':
+      return meta.guildName || meta.guild_name || meta.server_name || 'Discord';
+    case 'gmail':
+      return 'Mailboxes';
+    case 'chatgpt':
+      return 'Conversations';
+    case 'anthropic':
+      return 'Conversations';
+    case 'openclaw': {
+      const sessionKey = meta.sessionKey || meta.session_key || '';
+      if (typeof sessionKey === 'string' && sessionKey.includes(':')) {
+        const parts = sessionKey.split(':');
+        return parts[0] || 'Sessions';
+      }
+      return 'Sessions';
+    }
+    case 'slack':
+      return 'Channels';
+    default:
+      return 'Other';
+  }
+}
+
 /* ── Component ───────────────────────────────────────── */
 
 export default function AppViewDatabase({ service, serviceLabel, serviceKey }: AppViewDatabaseProps) {
@@ -126,12 +202,19 @@ export default function AppViewDatabase({ service, serviceLabel, serviceKey }: A
   const [messagesOffset, setMessagesOffset] = useState(0);
   const [filter, setFilter] = useState('');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [loadProgress, setLoadProgress] = useState('');
+
+  // Store all fetched messages for channel-level filtering
+  const allMessagesRef = useRef<DbMessage[]>([]);
+  // Map channelId -> channel name (from Discord ingestor, etc.)
+  const channelNamesRef = useRef<Record<string, string>>({});
 
   const theme = SERVICE_THEMES[service] || SERVICE_THEMES.discord;
   const sourceName = SOURCE_NAME_MAP[service] || service;
   const PAGE_SIZE = 50;
+  const FETCH_LIMIT = 200; // API max per request
 
-  // Fetch all messages for this source and group by channel
+  // Fetch all messages for this source across multiple pages
   useEffect(() => {
     fetchChannels();
   }, [service]);
@@ -139,22 +222,66 @@ export default function AppViewDatabase({ service, serviceLabel, serviceKey }: A
   const fetchChannels = async () => {
     setStatus('loading');
     setError('');
-    try {
-      // Fetch a large batch to discover channels
-      const data = await apiFetch<any>(`/api/messages?source=${sourceName}&limit=2000&offset=0`);
-      const msgs: DbMessage[] = data.messages || data || [];
+    setLoadProgress('Loading...');
 
-      // Group by channel_id
+    try {
+      // For Discord, try to fetch channel names from the ingestor
+      if (service === 'discord') {
+        try {
+          const channelData = await apiFetch<Record<string, { channelName: string; guildId: string | null; guildName: string | null }>>('/proxy/discord-ingestor/api/channels');
+          const names: Record<string, string> = {};
+          for (const [id, info] of Object.entries(channelData)) {
+            if (info.channelName) names[id] = info.channelName;
+          }
+          channelNamesRef.current = names;
+        } catch {
+          // Discord ingestor might not be available; proceed without names
+        }
+      }
+
+      // Paginate through messages to discover all channels
+      let allMsgs: DbMessage[] = [];
+      let offset = 0;
+      let total = Infinity;
+
+      while (offset < total && offset < 10000) { // Cap at 10k to avoid huge fetches
+        setLoadProgress(`Loading messages... ${offset} fetched`);
+        const data = await apiFetch<any>(
+          `/api/messages?source=${sourceName}&limit=${FETCH_LIMIT}&offset=${offset}&sort=timestamp&order=desc`
+        );
+        const msgs: DbMessage[] = data.messages || [];
+        total = data.total || 0;
+        allMsgs = allMsgs.concat(msgs);
+        offset += FETCH_LIMIT;
+
+        if (msgs.length < FETCH_LIMIT) break; // No more pages
+      }
+
+      allMessagesRef.current = allMsgs;
+      setLoadProgress('');
+
+      // Group by channel using metadata
       const channelMap = new Map<string, { name: string; group: string; count: number; latest: string }>();
-      for (const msg of msgs) {
-        const key = msg.channel_id || 'unknown';
-        const existing = channelMap.get(key);
+
+      for (const msg of allMsgs) {
+        const { channelId, channelName } = extractChannelInfo(service, msg);
+
+        // For Discord, override with ingestor channel names if available
+        const displayName = (service === 'discord' && channelNamesRef.current[channelId])
+          ? channelNamesRef.current[channelId]
+          : channelName;
+
+        const existing = channelMap.get(channelId);
         if (existing) {
           existing.count++;
           if (msg.timestamp > existing.latest) existing.latest = msg.timestamp;
+          // Update name if we got a better one
+          if (displayName && displayName !== channelId && existing.name === channelId) {
+            existing.name = displayName;
+          }
         } else {
-          channelMap.set(key, {
-            name: msg.channel_name || key,
+          channelMap.set(channelId, {
+            name: displayName,
             group: inferGroup(service, msg),
             count: 1,
             latest: msg.timestamp,
@@ -177,40 +304,57 @@ export default function AppViewDatabase({ service, serviceLabel, serviceKey }: A
     } catch (e: unknown) {
       setStatus('error');
       setError(e instanceof Error ? e.message : 'Failed to fetch data');
+      setLoadProgress('');
     }
   };
 
-  // Fetch messages for selected channel
-  const fetchMessages = useCallback(async (channelId: string, offset: number) => {
-    setMessagesLoading(true);
-    try {
-      const data = await apiFetch<any>(
-        `/api/messages?source=${sourceName}&channel_id=${encodeURIComponent(channelId)}&limit=${PAGE_SIZE}&offset=${offset}`
-      );
-      const msgs = data.messages || data || [];
-      setMessages(msgs);
-      setMessagesTotal(data.total || data.count || msgs.length);
-      setMessagesOffset(offset);
-    } catch {
-      setMessages([]);
-    } finally {
-      setMessagesLoading(false);
-    }
-  }, [sourceName]);
+  // Get messages for selected channel from in-memory store + paginate
+  const getChannelMessages = useCallback((channelId: string, offset: number): { msgs: DbMessage[]; total: number } => {
+    // Filter all messages by channel
+    const channelMsgs = allMessagesRef.current.filter(msg => {
+      const { channelId: msgChannelId } = extractChannelInfo(service, msg);
+      return msgChannelId === channelId;
+    });
+
+    // Sort by timestamp ascending (chronological)
+    channelMsgs.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+    return {
+      msgs: channelMsgs.slice(offset, offset + PAGE_SIZE),
+      total: channelMsgs.length,
+    };
+  }, [service]);
 
   const handleSelectChannel = useCallback((ch: ChannelGroup) => {
     setSelectedChannelId(ch.id);
     setMessagesOffset(0);
-    fetchMessages(ch.id, 0);
-  }, [fetchMessages]);
+    setMessagesLoading(true);
+
+    // Small timeout to let state update and show loading
+    setTimeout(() => {
+      const { msgs, total } = getChannelMessages(ch.id, 0);
+      setMessages(msgs);
+      setMessagesTotal(total);
+      setMessagesOffset(0);
+      setMessagesLoading(false);
+    }, 0);
+  }, [getChannelMessages]);
 
   const handlePage = useCallback((direction: 'prev' | 'next') => {
     if (!selectedChannelId) return;
     const newOffset = direction === 'next'
       ? messagesOffset + PAGE_SIZE
       : Math.max(0, messagesOffset - PAGE_SIZE);
-    fetchMessages(selectedChannelId, newOffset);
-  }, [selectedChannelId, messagesOffset, fetchMessages]);
+
+    setMessagesLoading(true);
+    setTimeout(() => {
+      const { msgs, total } = getChannelMessages(selectedChannelId, newOffset);
+      setMessages(msgs);
+      setMessagesTotal(total);
+      setMessagesOffset(newOffset);
+      setMessagesLoading(false);
+    }, 0);
+  }, [selectedChannelId, messagesOffset, getChannelMessages]);
 
   // Filter channels
   const filtered = useMemo(() => {
@@ -253,6 +397,7 @@ export default function AppViewDatabase({ service, serviceLabel, serviceKey }: A
         <div className="card" style={{ padding: 40, textAlign: 'center' }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
           <p style={{ color: '#888' }}>Loading {serviceLabel} data from database…</p>
+          {loadProgress && <p style={{ color: '#666', fontSize: 13 }}>{loadProgress}</p>}
         </div>
       </div>
     );
@@ -442,7 +587,7 @@ export default function AppViewDatabase({ service, serviceLabel, serviceKey }: A
               <div style={{ fontSize: 48, marginBottom: 12 }}>🗄️</div>
               <p style={{ fontSize: 16 }}>Select a channel to view messages</p>
               <p style={{ fontSize: 13, color: '#555' }}>
-                {channels.reduce((sum, ch) => sum + ch.count, 0)} total messages across {channels.length} channels
+                {allMessagesRef.current.length} total messages across {channels.length} channels
               </p>
             </div>
           ) : (
@@ -536,8 +681,8 @@ function MessageBubble({ msg, service, theme }: {
   // Service-specific sender styling
   const isBot = msg.sender?.toLowerCase().includes('bot') ||
     msg.sender?.toLowerCase().includes('assistant') ||
-    msg.sender_id === 'assistant';
-  const isUser = msg.sender_id === 'user' || msg.sender === 'user';
+    msg.sender === 'assistant';
+  const isUser = msg.sender === 'user';
 
   // For chat services, differentiate user vs assistant
   const isChatService = service === 'chatgpt' || service === 'anthropic' || service === 'openclaw';
@@ -587,29 +732,4 @@ function MessageBubble({ msg, service, theme }: {
       </div>
     </div>
   );
-}
-
-/* ── Helpers ─────────────────────────────────────────── */
-
-function inferGroup(service: string, msg: DbMessage): string {
-  // Try to infer group from metadata or channel patterns
-  if (service === 'discord') {
-    if (msg.metadata && typeof msg.metadata === 'object') {
-      const m = msg.metadata as any;
-      return m.guild_name || m.server_name || m.guildName || 'Server';
-    }
-    return 'Discord';
-  }
-  if (service === 'gmail') return 'Mailboxes';
-  if (service === 'chatgpt') return 'Conversations';
-  if (service === 'anthropic') return 'Conversations';
-  if (service === 'openclaw') {
-    if (msg.channel_name?.includes(':')) {
-      const parts = msg.channel_name.split(':');
-      return parts[0] || 'Sessions';
-    }
-    return 'Sessions';
-  }
-  if (service === 'slack') return 'Channels';
-  return 'Other';
 }
