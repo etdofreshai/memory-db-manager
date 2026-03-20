@@ -11,7 +11,7 @@ function detectPreviewType(mimeType?: string, fileName?: string): PreviewType {
   if (mime === 'application/pdf') return 'pdf';
   if (mime.startsWith('text/')) return 'text';
   const ext = (fileName || '').split('.').pop()?.toLowerCase() || '';
-  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic', 'heif'].includes(ext)) return 'image';
   if (['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(ext)) return 'video';
   if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext)) return 'audio';
   if (ext === 'pdf') return 'pdf';
