@@ -9,6 +9,9 @@ import {
   gmailApi,
   openclawApi,
   chatgptApi,
+  getSubscriptionSettings,
+  setSubscriptionSettings,
+  SubscriptionSettingsResponse,
 } from '../api';
 
 /* ── Types ────────────────────────────────────────────── */
@@ -218,11 +221,14 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
   // Track in-flight toggles (channel IDs or group names currently being toggled)
   const [togglingChannels, setTogglingChannels] = useState<Set<string>>(new Set());
   const [togglingGroups, setTogglingGroups] = useState<Set<string>>(new Set());
+  // Auto-subscribe state
+  const [autoSubscribe, setAutoSubscribe] = useState(false);
+  const [autoSubscribeLoading, setAutoSubscribeLoading] = useState(false);
 
   // Check if service is known to be not configured
   const notConfiguredMsg = NOT_CONFIGURED_SERVICES[service];
 
-  // Fetch existing subscriptions on mount
+  // Fetch existing subscriptions + auto-subscribe setting on mount
   const fetchExistingSubs = useCallback(async () => {
     try {
       const data = await getSubscriptions(service);
@@ -232,8 +238,19 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
         map.set(s.channel_id, s as Subscription);
       }
       setExistingSubs(map);
+      // Also check auto_subscribe from the response (API enriches it)
+      if ('auto_subscribe' in data) {
+        setAutoSubscribe(!!(data as Record<string, unknown>).auto_subscribe);
+      }
     } catch {
       // Subscriptions may not exist yet, that's fine
+    }
+    // Fetch auto-subscribe setting separately too (canonical source)
+    try {
+      const settings = await getSubscriptionSettings(service) as SubscriptionSettingsResponse;
+      setAutoSubscribe(settings.auto_subscribe);
+    } catch {
+      // Settings may not exist yet
     }
   }, [service]);
 
@@ -242,6 +259,27 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
       fetchExistingSubs();
     }
   }, [fetchExistingSubs, notConfiguredMsg]);
+
+  // Handle auto-subscribe toggle
+  const handleAutoSubscribeToggle = async () => {
+    const newValue = !autoSubscribe;
+    setAutoSubscribeLoading(true);
+    try {
+      await setSubscriptionSettings(service, { auto_subscribe: newValue });
+      setAutoSubscribe(newValue);
+      if (newValue) {
+        setSuccessMsg('Auto-subscribe enabled — all channels are now subscribed including future ones');
+      } else {
+        setSuccessMsg('Auto-subscribe disabled — manual subscription mode');
+      }
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to update setting';
+      setError(msg);
+    } finally {
+      setAutoSubscribeLoading(false);
+    }
+  };
 
   const handleDiscover = async () => {
     setStatus('loading');
@@ -314,7 +352,7 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
     return Object.entries(groupMap)
       .map(([name, chs]) => ({
         name,
-        channels: chs.sort((a, b) => a.channel_name.localeCompare(b.channel_name)),
+        channels: chs.sort((a, b) => (a.channel_name ?? '').localeCompare(b.channel_name ?? '')),
       }))
       .sort((a, b) => {
         if (a.name === 'Direct Messages' || a.name === 'Other') return 1;
@@ -325,12 +363,20 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
 
   // Count totals
   const totalFiltered = filtered.length;
+  // Helper: is a channel effectively subscribed? When auto-subscribe is on,
+  // a channel is subscribed unless explicitly unsubscribed (sub.subscribed === false).
+  const isEffectivelySubscribed = useCallback((ch: DiscoveredChannel): boolean => {
+    const sub = existingSubs.get(ch.channel_id);
+    if (autoSubscribe) {
+      // Auto-subscribe: subscribed unless explicitly unsubscribed
+      return sub ? sub.subscribed !== false : true;
+    }
+    return sub?.subscribed ?? false;
+  }, [existingSubs, autoSubscribe]);
+
   const totalAlreadySubscribed = useMemo(() => {
-    return filtered.filter(ch => {
-      const sub = existingSubs.get(ch.channel_id);
-      return sub?.subscribed;
-    }).length;
-  }, [filtered, existingSubs]);
+    return filtered.filter(ch => isEffectivelySubscribed(ch)).length;
+  }, [filtered, isEffectivelySubscribed]);
 
   /* ── Per-channel inline toggle ─────────────────────── */
   const handleToggleChannel = async (ch: DiscoveredChannel) => {
@@ -445,6 +491,49 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
   return (
     <div>
       <h1 className="page-title">{serviceIcon} {serviceLabel} Discovery</h1>
+
+      {/* Auto-subscribe toggle */}
+      <div style={{
+        padding: '14px 18px',
+        marginBottom: 12,
+        background: autoSubscribe ? '#0d2818' : '#1a1a2e',
+        border: `1px solid ${autoSubscribe ? '#1a5c2e' : '#333'}`,
+        borderRadius: 8,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 16,
+      }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            {autoSubscribe ? '✅' : '📋'} Auto-subscribe
+          </div>
+          <div style={{ fontSize: 13, color: '#999', lineHeight: 1.5 }}>
+            {autoSubscribe
+              ? 'All channels are subscribed, including new ones discovered in the future. Unsubscribe individual channels below.'
+              : 'Subscribe all channels including new ones automatically. Useful for services like ChatGPT, Anthropic, and OpenClaw.'}
+          </div>
+        </div>
+        <button
+          onClick={handleAutoSubscribeToggle}
+          disabled={autoSubscribeLoading}
+          style={{
+            padding: '8px 20px',
+            borderRadius: 999,
+            border: 'none',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: autoSubscribeLoading ? 'wait' : 'pointer',
+            transition: 'all 0.2s ease',
+            whiteSpace: 'nowrap',
+            background: autoSubscribe ? '#1a5c2e' : '#2a2a3e',
+            color: autoSubscribe ? '#4ade80' : '#aaa',
+            ...(autoSubscribe ? { border: '1px solid #2d8a4e' } : { border: '1px solid #555' }),
+          }}
+        >
+          {autoSubscribeLoading ? '⟳' : autoSubscribe ? '🟢 ON' : '⚪ OFF'}
+        </button>
+      </div>
 
       {/* Error display */}
       {error && status !== 'auth-error' && (
@@ -595,7 +684,7 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
           {/* Channel groups */}
           {groups.map(group => {
             const isCollapsed = collapsedGroups[group.name] ?? (groups.length > 3);
-            const groupSubCount = group.channels.filter(ch => existingSubs.get(ch.channel_id)?.subscribed).length;
+            const groupSubCount = group.channels.filter(ch => isEffectivelySubscribed(ch)).length;
             const groupTotal = group.channels.length;
             const allSubscribed = groupTotal > 0 && groupSubCount === groupTotal;
             const someSubscribed = groupSubCount > 0 && !allSubscribed;
@@ -668,8 +757,7 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
                 {!isCollapsed && (
                   <div style={{ borderTop: '1px solid #333' }}>
                     {visibleChannels.map(ch => {
-                      const sub = existingSubs.get(ch.channel_id);
-                      const isSubscribed = sub?.subscribed ?? false;
+                      const isSubscribed = isEffectivelySubscribed(ch);
                       const isToggling = togglingChannels.has(ch.channel_id);
 
                       return (

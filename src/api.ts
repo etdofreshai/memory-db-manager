@@ -59,6 +59,25 @@ export function getSyncStatus(service: string): Promise<{ service: string; syncS
   return apiFetch(`/api/subscriptions/${service}/sync-status`);
 }
 
+// Subscription settings (auto-subscribe)
+export interface SubscriptionSettingsResponse {
+  service: string;
+  auto_subscribe: boolean;
+  updated_at: string | null;
+}
+
+export function getSubscriptionSettings(service?: string): Promise<SubscriptionSettingsResponse | { settings: SubscriptionSettingsResponse[] }> {
+  const path = service ? `/api/subscriptions/settings/${service}` : '/api/subscriptions/settings';
+  return apiFetch(path);
+}
+
+export function setSubscriptionSettings(service: string, body: { auto_subscribe: boolean }): Promise<SubscriptionSettingsResponse> {
+  return apiFetch(`/api/subscriptions/settings/${service}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
 export interface ServiceConfig {
   [name: string]: { configured: boolean };
 }

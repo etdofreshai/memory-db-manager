@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { apiFetch } from '../api';
+import {
+  apiFetch,
+  getSubscriptionSettings,
+  setSubscriptionSettings,
+  SubscriptionSettingsResponse,
+} from '../api';
 
 interface Subscription {
   id: number;
@@ -33,20 +38,32 @@ export default function ServiceSubscriptions({ service, serviceLabel, serviceIco
   const [successMsg, setSuccessMsg] = useState('');
   const [filter, setFilter] = useState('');
   const [localChanges, setLocalChanges] = useState<Record<string, boolean>>({});
+  const [autoSubscribe, setAutoSubscribe] = useState(false);
+  const [autoSubscribeLoading, setAutoSubscribeLoading] = useState(false);
 
   const fetchSubscriptions = useCallback(async () => {
     setLoading(true);
     setError('');
     setLocalChanges({});
     try {
-      const data = await apiFetch<{ subscriptions: Subscription[] }>(`/api/subscriptions/${service}`);
+      const data = await apiFetch<{ subscriptions: Subscription[]; auto_subscribe?: boolean }>(`/api/subscriptions/${service}`);
       setSubscriptions(data.subscriptions || []);
+      if (data.auto_subscribe !== undefined) {
+        setAutoSubscribe(data.auto_subscribe);
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to load subscriptions';
       setError(msg);
       setSubscriptions([]);
     } finally {
       setLoading(false);
+    }
+    // Also fetch canonical auto-subscribe setting
+    try {
+      const settings = await getSubscriptionSettings(service) as SubscriptionSettingsResponse;
+      setAutoSubscribe(settings.auto_subscribe);
+    } catch {
+      // Settings may not exist yet
     }
   }, [service]);
 
@@ -134,6 +151,27 @@ export default function ServiceSubscriptions({ service, serviceLabel, serviceIco
       .sort((a, b) => a.name.localeCompare(b.name));
     return { ungrouped: noServer, serverGroups: groups };
   }, [filtered]);
+
+  // Handle auto-subscribe toggle
+  const handleAutoSubscribeToggle = async () => {
+    const newValue = !autoSubscribe;
+    setAutoSubscribeLoading(true);
+    try {
+      await setSubscriptionSettings(service, { auto_subscribe: newValue });
+      setAutoSubscribe(newValue);
+      if (newValue) {
+        setSuccessMsg('Auto-subscribe enabled — all channels are now subscribed including future ones');
+      } else {
+        setSuccessMsg('Auto-subscribe disabled — manual subscription mode');
+      }
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to update setting';
+      setError(msg);
+    } finally {
+      setAutoSubscribeLoading(false);
+    }
+  };
 
   const subscribedCount = filtered.filter(s => getSubscribed(s)).length;
 
@@ -253,6 +291,49 @@ export default function ServiceSubscriptions({ service, serviceLabel, serviceIco
   return (
     <div>
       <h1 className="page-title">{serviceIcon} {serviceLabel} Subscriptions</h1>
+
+      {/* Auto-subscribe toggle */}
+      <div style={{
+        padding: '14px 18px',
+        marginBottom: 12,
+        background: autoSubscribe ? '#0d2818' : '#1a1a2e',
+        border: `1px solid ${autoSubscribe ? '#1a5c2e' : '#333'}`,
+        borderRadius: 8,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 16,
+      }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            {autoSubscribe ? '✅' : '📋'} Auto-subscribe
+          </div>
+          <div style={{ fontSize: 13, color: '#999', lineHeight: 1.5 }}>
+            {autoSubscribe
+              ? 'All channels are subscribed, including new ones. Unsubscribe individual channels below to exclude them.'
+              : 'Subscribe all channels including new ones automatically. Useful for services like ChatGPT, Anthropic, and OpenClaw.'}
+          </div>
+        </div>
+        <button
+          onClick={handleAutoSubscribeToggle}
+          disabled={autoSubscribeLoading}
+          style={{
+            padding: '8px 20px',
+            borderRadius: 999,
+            border: 'none',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: autoSubscribeLoading ? 'wait' : 'pointer',
+            transition: 'all 0.2s ease',
+            whiteSpace: 'nowrap',
+            background: autoSubscribe ? '#1a5c2e' : '#2a2a3e',
+            color: autoSubscribe ? '#4ade80' : '#aaa',
+            ...(autoSubscribe ? { border: '1px solid #2d8a4e' } : { border: '1px solid #555' }),
+          }}
+        >
+          {autoSubscribeLoading ? '⟳' : autoSubscribe ? '🟢 ON' : '⚪ OFF'}
+        </button>
+      </div>
 
       {error && <div className="error-box">{error}</div>}
       {successMsg && (
