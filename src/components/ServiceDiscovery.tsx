@@ -93,13 +93,15 @@ async function discoverGmail(): Promise<DiscoveredChannel[]> {
 
 async function discoverOpenClaw(): Promise<DiscoveredChannel[]> {
   const data = await openclawApi<any>('/api/sessions');
-  const sessions: Array<{ sessionKey: string; label?: string; kind?: string; [k: string]: unknown }> =
+  const sessions: Array<{ sessionKey?: string | null; label?: string | null; kind?: string | null; [k: string]: unknown }> =
     Array.isArray(data) ? data : (data?.sessions || []);
-  return sessions.map(s => ({
-    channel_id: s.sessionKey,
-    channel_name: s.label || s.sessionKey,
-    group: s.kind || 'other',
-  }));
+  return sessions
+    .filter(s => s.sessionKey) // skip sessions with null/undefined sessionKey
+    .map(s => ({
+      channel_id: s.sessionKey!,
+      channel_name: s.label || s.sessionKey || 'unnamed',
+      group: s.kind || 'other',
+    }));
 }
 
 async function discoverChatGPT(): Promise<DiscoveredChannel[]> {
@@ -357,7 +359,7 @@ export default function ServiceDiscovery({ service, serviceLabel, serviceIcon, s
       .sort((a, b) => {
         if (a.name === 'Direct Messages' || a.name === 'Other') return 1;
         if (b.name === 'Direct Messages' || b.name === 'Other') return -1;
-        return a.name.localeCompare(b.name);
+        return (a.name ?? '').localeCompare(b.name ?? '');
       });
   }, [filtered]);
 
