@@ -44,6 +44,8 @@ import ServiceDiscovery from './components/ServiceDiscovery';
 import ServiceDashboard from './components/ServiceDashboard';
 import ServiceJobs from './components/ServiceJobs';
 import ServiceBackfill from './components/ServiceBackfill';
+import AppViewLive from './components/AppViewLive';
+import AppViewDatabase from './components/AppViewDatabase';
 
 import { getServiceConfig, checkHealth, ServiceConfig } from './api';
 
@@ -97,6 +99,8 @@ const STANDARD_PAGES = [
   { suffix: 'messages',      icon: '✉️', label: 'Messages' },
   { suffix: 'jobs',          icon: '📋', label: 'Jobs' },
   { suffix: 'backfill',      icon: '⏪', label: 'Backfill' },
+  { suffix: 'app-live',      icon: '🔴', label: 'App View [Live]' },
+  { suffix: 'app-db',        icon: '🗄️', label: 'App View [Database]' },
 ];
 
 function buildServiceSection(svc: ServiceDef): SidebarSection {
@@ -242,6 +246,8 @@ export default function App() {
           <Route path="/discord/messages" element={<ServiceMessages source="discord" serviceLabel="Discord" serviceIcon="👾" />} />
           <Route path="/discord/jobs" element={<DiscordJobs />} />
           <Route path="/discord/backfill" element={<DiscordBackfill />} />
+          <Route path="/discord/app-live" element={<AppViewLive service="discord" serviceLabel="Discord" serviceKey="discord-ingestor" />} />
+          <Route path="/discord/app-db" element={<AppViewDatabase service="discord" serviceLabel="Discord" serviceKey="discord-ingestor" />} />
           {/* Legacy Discord routes */}
           <Route path="/discord/channels" element={<DiscordChannels />} />
           <Route path="/discord/scheduled" element={<DiscordScheduled />} />
@@ -253,6 +259,8 @@ export default function App() {
           <Route path="/gmail/messages" element={<ServiceMessages source="email" serviceLabel="Gmail" serviceIcon="📨" />} />
           <Route path="/gmail/jobs" element={<ServiceJobs service="gmail" serviceLabel="Gmail" serviceIcon="📨" serviceKey="gmail-ingestor" />} />
           <Route path="/gmail/backfill" element={<ServiceBackfill service="gmail" serviceLabel="Gmail" serviceIcon="📨" serviceKey="gmail-ingestor" />} />
+          <Route path="/gmail/app-live" element={<AppViewLive service="gmail" serviceLabel="Gmail" serviceKey="gmail-ingestor" />} />
+          <Route path="/gmail/app-db" element={<AppViewDatabase service="gmail" serviceLabel="Gmail" serviceKey="gmail-ingestor" />} />
           {/* Legacy Gmail routes */}
           <Route path="/gmail/mailboxes" element={<GmailMailboxes />} />
           <Route path="/gmail/mailbox/:mailbox" element={<GmailEmailList />} />
@@ -265,6 +273,8 @@ export default function App() {
           <Route path="/slack/messages" element={<ServiceMessages source="slack" serviceLabel="Slack" serviceIcon="#️⃣" />} />
           <Route path="/slack/jobs" element={<SlackJobs />} />
           <Route path="/slack/backfill" element={<SlackBackfill />} />
+          <Route path="/slack/app-live" element={<AppViewLive service="slack" serviceLabel="Slack" serviceKey="slack-ingestor" />} />
+          <Route path="/slack/app-db" element={<AppViewDatabase service="slack" serviceLabel="Slack" serviceKey="slack-ingestor" />} />
           {/* Legacy Slack routes */}
           <Route path="/slack/channels" element={<SlackChannels />} />
           <Route path="/slack/scheduled" element={<SlackScheduled />} />
@@ -276,6 +286,8 @@ export default function App() {
           <Route path="/anthropic/messages" element={<ServiceMessages source="anthropic" serviceLabel="Anthropic" serviceIcon="✳️" />} />
           <Route path="/anthropic/jobs" element={<ServiceJobs service="anthropic" serviceLabel="Anthropic" serviceIcon="✳️" serviceKey="anthropic-ingestor" />} />
           <Route path="/anthropic/backfill" element={<ServiceBackfill service="anthropic" serviceLabel="Anthropic" serviceIcon="✳️" serviceKey="anthropic-ingestor" />} />
+          <Route path="/anthropic/app-live" element={<AppViewLive service="anthropic" serviceLabel="Anthropic" serviceKey="anthropic-ingestor" />} />
+          <Route path="/anthropic/app-db" element={<AppViewDatabase service="anthropic" serviceLabel="Anthropic" serviceKey="anthropic-ingestor" />} />
 
           {/* ── ChatGPT ───────────────────────────────────── */}
           <Route path="/chatgpt/dashboard" element={<ChatGPTDashboard />} />
@@ -284,6 +296,8 @@ export default function App() {
           <Route path="/chatgpt/messages" element={<ServiceMessages source="chatgpt" serviceLabel="ChatGPT" serviceIcon="🌐" />} />
           <Route path="/chatgpt/jobs" element={<ChatGPTJobs />} />
           <Route path="/chatgpt/backfill" element={<ServiceBackfill service="chatgpt" serviceLabel="ChatGPT" serviceIcon="🌐" serviceKey="chatgpt-ingestor" />} />
+          <Route path="/chatgpt/app-live" element={<AppViewLive service="chatgpt" serviceLabel="ChatGPT" serviceKey="chatgpt-ingestor" />} />
+          <Route path="/chatgpt/app-db" element={<AppViewDatabase service="chatgpt" serviceLabel="ChatGPT" serviceKey="chatgpt-ingestor" />} />
           {/* Legacy ChatGPT routes */}
           <Route path="/chatgpt/live" element={<ChatGPTLive />} />
           <Route path="/chatgpt/conversations" element={<ChatGPTConversations />} />
@@ -296,6 +310,8 @@ export default function App() {
           <Route path="/openclaw/messages" element={<ServiceMessages source="openclaw" serviceLabel="OpenClaw" serviceIcon="🦞" />} />
           <Route path="/openclaw/jobs" element={<ServiceJobs service="openclaw" serviceLabel="OpenClaw" serviceIcon="🦞" serviceKey="openclaw-ingestor" />} />
           <Route path="/openclaw/backfill" element={<OpenClawBackfill />} />
+          <Route path="/openclaw/app-live" element={<AppViewLive service="openclaw" serviceLabel="OpenClaw" serviceKey="openclaw-ingestor" />} />
+          <Route path="/openclaw/app-db" element={<AppViewDatabase service="openclaw" serviceLabel="OpenClaw" serviceKey="openclaw-ingestor" />} />
           {/* Legacy OpenClaw routes */}
           <Route path="/openclaw/live-sessions" element={<OpenClawLiveSessions />} />
           <Route path="/openclaw/memory-sessions" element={<OpenClawMemorySessions />} />
