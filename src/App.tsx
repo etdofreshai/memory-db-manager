@@ -64,8 +64,19 @@ const SERVICES: ServiceDef[] = [
   { id: 'anthropic', icon: '✳️', label: 'Anthropic', serviceKey: 'anthropic-ingestor', sourceName: 'anthropic' },
   { id: 'chatgpt',   icon: '🌐', label: 'ChatGPT',  serviceKey: 'chatgpt-ingestor',   sourceName: 'chatgpt' },
   { id: 'openclaw',  icon: '🦞', label: 'OpenClaw',  serviceKey: 'openclaw-ingestor',  sourceName: 'openclaw' },
-  { id: 'imessage',  icon: '💬', label: 'iMessage',  serviceKey: '',                   sourceName: 'imessage' },
 ];
+
+/* iMessage is local (Mac Mini), no ingestor — custom sidebar */
+const IMESSAGE_SECTION: SidebarSection = {
+  key: 'imessage',
+  icon: '💬',
+  label: 'iMessage',
+  items: [
+    { to: '/imessage/dashboard', icon: '📊', label: 'Dashboard' },
+    { to: '/imessage/messages',  icon: '✉️', label: 'Messages' },
+    { to: '/imessage/conversations', icon: '💬', label: 'Conversations' },
+  ],
+};
 
 /* ── Sidebar section type ───────────────────────────────── */
 
@@ -116,6 +127,7 @@ const sections: SidebarSection[] = [
     ],
   },
   ...SERVICES.map(buildServiceSection),
+  IMESSAGE_SECTION,
 ];
 
 /* ── Collapsed state persistence ────────────────────────── */
@@ -288,14 +300,9 @@ export default function App() {
           <Route path="/openclaw/live-sessions" element={<OpenClawLiveSessions />} />
           <Route path="/openclaw/memory-sessions" element={<OpenClawMemorySessions />} />
 
-          {/* ── iMessage ──────────────────────────────────── */}
+          {/* ── iMessage (local, no ingestor) ────────────── */}
           <Route path="/imessage/dashboard" element={<ServiceDashboard service="imessage" serviceLabel="iMessage" serviceIcon="💬" serviceKey="" sourceName="imessage" />} />
-          <Route path="/imessage/subscriptions" element={<ServiceSubscriptions service="imessage" serviceLabel="iMessage" serviceIcon="💬" />} />
-          <Route path="/imessage/discovery" element={<ServiceDiscovery service="imessage" serviceLabel="iMessage" serviceIcon="💬" serviceKey="" />} />
           <Route path="/imessage/messages" element={<ServiceMessages source="imessage" serviceLabel="iMessage" serviceIcon="💬" />} />
-          <Route path="/imessage/jobs" element={<ServiceJobs service="imessage" serviceLabel="iMessage" serviceIcon="💬" serviceKey="" />} />
-          <Route path="/imessage/backfill" element={<ServiceBackfill service="imessage" serviceLabel="iMessage" serviceIcon="💬" serviceKey="" />} />
-          {/* Legacy iMessage routes */}
           <Route path="/imessage/conversations" element={<IMessageConversations />} />
 
           {/* ── Default ───────────────────────────────────── */}
