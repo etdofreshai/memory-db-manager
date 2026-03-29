@@ -37,6 +37,10 @@ const services = {
     url: (process.env.OPENCLAW_INGESTOR_URL || '').replace(/\/$/, ''),
     token: process.env.OPENCLAW_INGESTOR_TOKEN || '',
   },
+  'whatsapp-ingestor': {
+    url: (process.env.WHATSAPP_INGESTOR_URL || '').replace(/\/$/, ''),
+    token: process.env.WHATSAPP_INGESTOR_TOKEN || '',
+  },
 };
 
 const app = express();

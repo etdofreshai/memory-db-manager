@@ -66,6 +66,7 @@ const SERVICES: ServiceDef[] = [
   { id: 'anthropic', icon: '✳️', label: 'Anthropic', serviceKey: 'anthropic-ingestor', sourceName: 'anthropic' },
   { id: 'chatgpt',   icon: '🌐', label: 'ChatGPT',  serviceKey: 'chatgpt-ingestor',   sourceName: 'chatgpt' },
   { id: 'openclaw',  icon: '🦞', label: 'OpenClaw',  serviceKey: 'openclaw-ingestor',  sourceName: 'openclaw' },
+  { id: 'whatsapp', icon: '📱', label: 'WhatsApp',  serviceKey: 'whatsapp-ingestor', sourceName: 'whatsapp' },
 ];
 
 /* iMessage is local (Mac Mini), no ingestor — custom sidebar */
@@ -315,6 +316,16 @@ export default function App() {
           {/* Legacy OpenClaw routes */}
           <Route path="/openclaw/live-sessions" element={<OpenClawLiveSessions />} />
           <Route path="/openclaw/memory-sessions" element={<OpenClawMemorySessions />} />
+
+          {/* ── WhatsApp ─────────────────────────────────── */}
+          <Route path="/whatsapp/dashboard" element={<ServiceDashboard service="whatsapp" serviceLabel="WhatsApp" serviceIcon="📱" serviceKey="whatsapp-ingestor" sourceName="whatsapp" />} />
+          <Route path="/whatsapp/subscriptions" element={<ServiceSubscriptions service="whatsapp" serviceLabel="WhatsApp" serviceIcon="📱" />} />
+          <Route path="/whatsapp/discovery" element={<ServiceDiscovery service="whatsapp" serviceLabel="WhatsApp" serviceIcon="📱" serviceKey="whatsapp-ingestor" />} />
+          <Route path="/whatsapp/messages" element={<ServiceMessages source="whatsapp" serviceLabel="WhatsApp" serviceIcon="📱" />} />
+          <Route path="/whatsapp/jobs" element={<ServiceJobs service="whatsapp" serviceLabel="WhatsApp" serviceIcon="📱" serviceKey="whatsapp-ingestor" />} />
+          <Route path="/whatsapp/backfill" element={<ServiceBackfill service="whatsapp" serviceLabel="WhatsApp" serviceIcon="📱" serviceKey="whatsapp-ingestor" />} />
+          <Route path="/whatsapp/app-live" element={<AppViewLive service="whatsapp" serviceLabel="WhatsApp" serviceKey="whatsapp-ingestor" />} />
+          <Route path="/whatsapp/app-db" element={<AppViewDatabase service="whatsapp" serviceLabel="WhatsApp" serviceKey="whatsapp-ingestor" />} />
 
           {/* ── iMessage (local, no ingestor) ────────────── */}
           <Route path="/imessage/dashboard" element={<ServiceDashboard service="imessage" serviceLabel="iMessage" serviceIcon="💬" serviceKey="" sourceName="imessage" />} />
